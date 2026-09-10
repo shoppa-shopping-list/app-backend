@@ -1,5 +1,4 @@
 import pino, { type Logger } from 'pino';
-import PinoPretty from 'pino-pretty';
 
 import { buildApp } from './app.js';
 import { config } from './config.js';
@@ -18,14 +17,22 @@ const HARD_SHUTDOWN_TIMEOUT_MS = 25_000; // < systemd's TimeoutStopSec (30s, §7
 
 // sync: true so the last ERROR line survives process.exit() (landmine 9) — applies whether
 // or not LOG_PRETTY is on, since this is the only logger in the process, boot through shutdown.
-function createLogger(): Logger {
-  const destination = config.logPretty
-    ? PinoPretty({ sync: true })
-    : pino.destination({ sync: true });
+// pino-pretty is dynamically imported, and only when logPretty is on: it's a devDependency
+// (LOG_PRETTY defaults off and is never meant on the boot path, see config.ts), so a
+// `--omit=dev` production install doesn't have it — a static import would ERR_MODULE_NOT_FOUND
+// at boot regardless of this branch, since ESM resolves imports before any code runs.
+async function createLogger(): Promise<Logger> {
+  let destination;
+  if (config.logPretty) {
+    const { default: PinoPretty } = await import('pino-pretty');
+    destination = PinoPretty({ sync: true });
+  } else {
+    destination = pino.destination({ sync: true });
+  }
   return pino({ level: config.logLevel }, destination);
 }
 
-const log = createLogger();
+const log = await createLogger();
 
 async function main(): Promise<void> {
   const writer = createLocalWriter({
