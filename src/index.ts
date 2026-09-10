@@ -3,9 +3,16 @@ import PinoPretty from 'pino-pretty';
 
 import { buildApp } from './app.js';
 import { config } from './config.js';
-import { flushNow, hydrate } from './shared/persistence/index.js';
+import {
+  configureTelegramFlush,
+  flushNow,
+  hydrate,
+  scheduleTelegramFlush,
+} from './shared/persistence/index.js';
 import { createLocalWriter } from './shared/persistence/local.js';
+import { createSnapshotSource, type SnapshotSource } from './shared/persistence/snapshot.js';
 import { configureStore } from './shared/state/store.js';
+import { createTelegramClient } from './shared/telegram.js';
 
 const HARD_SHUTDOWN_TIMEOUT_MS = 25_000; // < systemd's TimeoutStopSec (30s, §7)
 
@@ -26,17 +33,23 @@ async function main(): Promise<void> {
     statePath: config.statePath,
     ...(config.strictDirFsync !== undefined && { strictDirFsync: config.strictDirFsync }),
   });
+  const snapshot = createSnapshot();
 
   // Writes via `writer` directly, never via mutate() — both precede configureStore().
   // hydrate() and buildApp() touch disjoint state (see each's own comment), so they run
   // concurrently rather than serializing disk I/O behind plugin registration.
-  const [, app] = await Promise.all([hydrate({ log, writer }), buildApp({ config, log })]);
+  const [, app] = await Promise.all([
+    hydrate({ log, snapshot, writer }),
+    buildApp({ config, log }),
+  ]);
 
   const { events } = app; // the SSE hub; only this (not the whole app) should outlive main()
   configureStore({
     emitChange: () => events.emit(),
+    scheduleTelegramFlush,
     writeLocalSync: writer.writeLocalSync,
   });
+  configureTelegramFlush({ debounceMs: config.flushDebounceMs, log, snapshot });
 
   let shuttingDown = false;
   function shutdown(): void {
@@ -70,6 +83,36 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
 
   await app.listen({ host: config.host, port: config.port });
+}
+
+// Telegram is required, not optional — §3.1 always consults it once the local file is
+// missing, corrupt, or fails to migrate, and D6 treats "not configured" the same as
+// "unreachable": FATAL, not seed. A fresh clone with no .env still boots, because that
+// branch is only reached when there's no usable local state to begin with; local dev
+// almost always has one after the first run (see config.ts's BOT_TOKEN comment).
+function createSnapshot(): SnapshotSource {
+  const chatId = config.snapshotChatId ?? config.ownerUserId;
+  if (
+    chatId === undefined ||
+    config.telegramApiBase === undefined ||
+    config.botToken === undefined
+  ) {
+    const notConfigured = (): Promise<never> =>
+      Promise.reject(
+        new Error(
+          'Telegram not configured: TELEGRAM_API_BASE, BOT_TOKEN, and OWNER_USER_ID ' +
+            '(or SNAPSHOT_CHAT_ID) are all required (D26, §7)',
+        ),
+      );
+    return { readSnapshot: notConfigured, writeSnapshot: notConfigured };
+  }
+
+  const client = createTelegramClient({
+    log,
+    telegramApiBase: config.telegramApiBase,
+    ...(config.relaySecret !== undefined && { relaySecret: config.relaySecret }),
+  });
+  return createSnapshotSource({ chatId, client });
 }
 
 try {

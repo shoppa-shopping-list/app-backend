@@ -4,46 +4,42 @@ import { randomUUID } from 'node:crypto';
 
 import type { State } from '../state/types.js';
 import type { LocalWriter } from './local.js';
+import type { SnapshotSource } from './snapshot.js';
 
 import { migrate } from '../state/migrate.js';
-import { installState } from '../state/store.js';
+import { getState, installState, mutate } from '../state/store.js';
 
 export interface HydrateOptions {
   log: Logger;
+  snapshot: SnapshotSource;
   writer: LocalWriter;
 }
 
 type MissingLocalStateReason =
   { err: unknown; kind: 'corrupt' | 'migrate-failed' } | { kind: 'absent' };
 
-// TODO(D26, §3.2): synchronous final flush used by the SIGTERM handler. Stubbed until the
-// relay exists; must handle 429/retry_after and never throw (D8) once implemented.
-export function flushNow(): Promise<void> {
-  return Promise.resolve();
+export interface TelegramFlushOptions {
+  debounceMs: number;
+  log: Logger;
+  snapshot: SnapshotSource;
 }
 
-// hydrate() only ever consults the local file today. §3.1's Telegram branch — reached when
-// the local file is absent or corrupt — is deliberately not implemented: D6 ("boot refuses
-// rather than guesses") requires that path to distinguish "no data" from "can't reach
-// Telegram" and FATAL/exit(1) on the latter. Wiring `catch → seed` here would be exactly the
-// silent-data-loss bug D6 exists to prevent. See docs/architecture-design.md §3.1, D6.
-//
-// Declared `async` (with no `await` yet) so that a synchronous throw from `writer.read()`
-// becomes a rejected promise rather than a synchronous exception at the call site — the
-// caller always does `await hydrate(...)` and expects errors to surface that way (D6: boot
-// fails loudly). The awaits arrive with the Telegram branch above.
-// eslint-disable-next-line @typescript-eslint/require-await -- see comment above
+// hydrate() consults the local file first, then falls back to Telegram (§3.1) when it's
+// absent, corrupt, or fails to migrate. D6 ("boot refuses rather than guesses") requires
+// "no data" and "can't reach Telegram" to stay separate branches all the way down —
+// wiring `catch -> seed` here would be exactly the silent-data-loss bug D6 exists to
+// prevent. See docs/architecture-design.md §3.1, D6.
 export async function hydrate(options: HydrateOptions): Promise<void> {
-  const { log, writer } = options;
+  const { log, snapshot, writer } = options;
   const result = writer.read();
 
   switch (result.kind) {
     case 'absent': {
-      resolveMissingLocalState({ kind: 'absent' }, writer, log);
+      await resolveMissingLocalState({ kind: 'absent' }, writer, snapshot, log);
       return;
     }
     case 'corrupt': {
-      resolveMissingLocalState({ err: result.err, kind: 'corrupt' }, writer, log);
+      await resolveMissingLocalState({ err: result.err, kind: 'corrupt' }, writer, snapshot, log);
       return;
     }
     case 'ok': {
@@ -53,30 +49,29 @@ export async function hydrate(options: HydrateOptions): Promise<void> {
         log.info('hydrated from local state');
         return;
       } catch (error) {
-        resolveMissingLocalState({ err: error, kind: 'migrate-failed' }, writer, log);
+        await resolveMissingLocalState(
+          { err: error, kind: 'migrate-failed' },
+          writer,
+          snapshot,
+          log,
+        );
         return;
       }
     }
   }
 }
 
-// TODO(D26): debounced (~15s, §2.1) flush to the pinned Telegram snapshot. Stubbed until
-// the Cloudflare Worker relay exists — see docs/architecture-design.md D26.
-export function scheduleTelegramFlush(): void {}
-
-// Single seam for every "local file can't be trusted" path, so that D6's future Telegram
-// branch (try the pinned snapshot, FATAL/exit(1) if unreachable — never fall through
-// silently) only needs to be wired up once, not once per caller.
-// TODO(§3.1, D6): try the pinned Telegram snapshot before seeding empty, and FATAL
-// (exit(1)) rather than seed if Telegram is unreachable — never fall through silently.
-function resolveMissingLocalState(
+// Single seam for every "local file can't be trusted" path, so that the Telegram fallback
+// only needs to be wired up once, not once per caller.
+async function resolveMissingLocalState(
   reason: MissingLocalStateReason,
   writer: LocalWriter,
+  snapshot: SnapshotSource,
   log: Logger,
-): void {
+): Promise<void> {
   switch (reason.kind) {
     case 'absent': {
-      log.warn('no local state found; seeding empty state');
+      log.warn('no local state found; consulting Telegram (§3.1)');
       break;
     }
     case 'corrupt': {
@@ -90,14 +85,142 @@ function resolveMissingLocalState(
       break;
     }
   }
-  seedAndInstall(writer);
+  await recoverFromTelegram(writer, snapshot, log);
 }
 
-function seedAndInstall(writer: LocalWriter): State {
-  const seeded = seedEmptyState();
-  writer.writeLocalSync(seeded);
-  installState(seeded);
-  return seeded;
+// §3.1's Telegram branch. Four outcomes, not three — §9.9 adds a fourth beyond the
+// original flowchart: a pin that exists but isn't our snapshot document (the owner pinned
+// something else, D5) is exactly the same hazard as unreachable, not "no pin". Treating it
+// as no-pin would seed empty and overwrite the pin holding the only surviving copy — D6's
+// disaster, arriving through the branch D6 was written to close.
+//
+// A transport failure (readSnapshot rejects: timeout, 5xx, relay/config missing) is left
+// to propagate — the caller (ultimately index.ts's boot try/catch) logs FATAL and
+// exit(1)s. That is the point: refuse rather than guess.
+async function recoverFromTelegram(
+  writer: LocalWriter,
+  snapshot: SnapshotSource,
+  log: Logger,
+): Promise<void> {
+  const result = await snapshot.readSnapshot();
+
+  switch (result.kind) {
+    case 'found': {
+      const state = migrate(result.state);
+      state.meta.snapshotMessageId = result.messageId;
+      writer.writeLocalSync(state);
+      installState(state);
+      log.warn(
+        'hydrated from Telegram snapshot; local file was missing or unusable — this may lag',
+      );
+      return;
+    }
+    case 'no-pin': {
+      const seeded = seedEmptyState();
+      writer.writeLocalSync(seeded);
+      try {
+        seeded.meta.snapshotMessageId = await snapshot.writeSnapshot(
+          JSON.stringify(seeded),
+          undefined,
+        );
+        writer.writeLocalSync(seeded);
+      } catch (error) {
+        log.error(
+          { err: error },
+          'seeded empty state but failed to push it to Telegram; will retry on next flush',
+        );
+      }
+      installState(seeded);
+      return;
+    }
+    case 'pin-not-ours': {
+      throw new Error(
+        "boot refuses: a Telegram pin exists in the snapshot chat but is not this app's " +
+          'document (§9.9) — resolve manually (re-pin the real snapshot, or clear the pin) ' +
+          'before restarting',
+      );
+    }
+  }
+}
+
+let flushOptions: TelegramFlushOptions | undefined;
+let flushTimer: NodeJS.Timeout | undefined;
+let dirty = false;
+
+// Called once from index.ts's composition root, after configureStore() — before that,
+// mutate()'s sinks aren't wired and scheduleTelegramFlush() must be a safe no-op (matches
+// the pre-existing stub behaviour for hydrate(), tests, and any script that never calls it).
+export function configureTelegramFlush(options: TelegramFlushOptions): void {
+  flushOptions = options;
+}
+
+// Debounced (~15s, §2.1) flush to the pinned Telegram snapshot, triggered by every
+// mutate() (via the store's scheduleTelegramFlush sink). Not a scheduled job (D22) — it's
+// change-triggered, which is strictly better than clock-triggered for a replica.
+export function scheduleTelegramFlush(): void {
+  if (flushOptions === undefined) {
+    return;
+  }
+  dirty = true;
+  if (flushTimer !== undefined) {
+    clearTimeout(flushTimer);
+  }
+  flushTimer = setTimeout(() => {
+    void performFlush();
+  }, flushOptions.debounceMs);
+  flushTimer.unref(); // must not hold the process open, same as events.routes.ts's keep-alive
+}
+
+// Synchronous-final-flush used by the SIGTERM handler (§3.2). Skips the debounce wait —
+// if dirty, flushes immediately; otherwise a no-op. Never throws (D3, D8): performFlush
+// catches and logs internally, same as every other Telegram-tier call site.
+export async function flushNow(): Promise<void> {
+  if (flushOptions === undefined || !dirty) {
+    return;
+  }
+  if (flushTimer !== undefined) {
+    clearTimeout(flushTimer);
+    flushTimer = undefined;
+  }
+  await performFlush();
+}
+
+async function performFlush(): Promise<void> {
+  if (flushOptions === undefined) {
+    return;
+  }
+  const { log, snapshot } = flushOptions;
+  dirty = false;
+  flushTimer = undefined;
+
+  const state = getState();
+  try {
+    const messageId = await snapshot.writeSnapshot(
+      JSON.stringify(state),
+      state.meta.snapshotMessageId,
+    );
+    if (messageId !== state.meta.snapshotMessageId) {
+      // Bookkeeping, not domain data — silent per §5.2, same as viewMessageIds.
+      mutate(
+        (draft) => {
+          draft.meta.snapshotMessageId = messageId;
+        },
+        { silent: true },
+      );
+    }
+    log.info('flushed snapshot to telegram');
+  } catch (error) {
+    log.error({ err: error }, 'telegram flush failed');
+  }
+}
+
+export function resetTelegramFlushForTests(): void {
+  flushOptions = undefined;
+  if (flushTimer !== undefined) {
+    clearTimeout(flushTimer);
+  }
+  flushTimer = undefined;
+  dirty = false;
 }
 
 export function seedEmptyState(): State {
