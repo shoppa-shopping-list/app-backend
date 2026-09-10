@@ -108,4 +108,17 @@ describe('createTelegramClient', () => {
     await expect(client.getChat(1)).rejects.toThrow(/403/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  // Caught live against the deployed relay: a bad/missing RELAY_SECRET returns a plain
+  // "unauthorized" body (401), which is the relay's own response, not Telegram's JSON
+  // envelope — response.json() threw an opaque SyntaxError instead of a useful message.
+  it('surfaces a clear error for a non-JSON relay response (e.g. unauthorized)', async () => {
+    const fetchMock = vi.fn((): Promise<Response> =>
+      Promise.resolve(new Response('unauthorized', { status: 401 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createTelegramClient({ log: silentLogger(), telegramApiBase: BASE });
+
+    await expect(client.getChat(1)).rejects.toThrow(/401.*unauthorized/);
+  });
 });

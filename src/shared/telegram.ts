@@ -192,7 +192,7 @@ export function createTelegramClient(options: CreateTelegramClientOptions): Tele
         headers: buildHeaders(isForm ? undefined : 'application/json'),
         method: 'POST',
       });
-      const payload = (await response.json()) as TelegramResponse<T>;
+      const payload = await parseTelegramResponse<T>(response);
       if (payload.ok) {
         return payload;
       }
@@ -242,6 +242,24 @@ function appendDocumentBlob(form: FormData, document: TelegramDocument): void {
   const bytes = new Uint8Array(document.bytes.byteLength);
   bytes.set(document.bytes);
   form.append('document', new Blob([bytes], { type: 'application/json' }), document.filename);
+}
+
+// The relay's own error responses (401 bad secret, 403 disallowed method, 404) are plain
+// text, not Telegram's `{ok:false, ...}` JSON envelope — parsing those as JSON threw an
+// opaque SyntaxError instead of a useful message (caught live: a flush failure logged
+// "Unexpected token 'u', \"unauthorized\" is not valid JSON" with no hint why). Fall back
+// to a synthetic error response instead of letting JSON.parse throw.
+async function parseTelegramResponse<T>(response: Response): Promise<TelegramResponse<T>> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as TelegramResponse<T>;
+  } catch {
+    return {
+      description: text.length > 0 ? text : `HTTP ${String(response.status)}`,
+      error_code: response.status,
+      ok: false,
+    };
+  }
 }
 
 function isNotModified(payload: TelegramErrorResponse): boolean {
