@@ -1,0 +1,18 @@
+[Unit]
+Description=Shoppa backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lit
+WorkingDirectory=/home/lit/projects/shoppa-app-backend
+Environment=NODE_ENV=production
+EnvironmentFile=-/home/lit/projects/shoppa-app-backend/.env
+ExecStart=/usr/local/bin/node dist/index.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

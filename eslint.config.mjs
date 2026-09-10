@@ -17,7 +17,9 @@ import newspaperOrder from './eslint-rules/newspaper-order.mjs';
 
 export default defineConfig(
   {
-    ignores: ['dist', 'coverage', 'node_modules', '.husky', 'public', 'data'],
+    // telegram-relay/ is a separate deployable (Cloudflare Worker, its own runtime and
+    // secrets) — not part of this npm project's tsconfig, so typed linting can't reach it.
+    ignores: ['dist', 'coverage', 'node_modules', '.husky', 'public', 'data', 'telegram-relay'],
   },
 
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
@@ -164,6 +166,17 @@ export default defineConfig(
           ],
         },
       ],
+    },
+  },
+
+  // The debounced-flush timer state (flushOptions/flushTimer/dirty) is deliberately
+  // module-level, reassigned from scheduleTelegramFlush()/flushNow()/performFlush() — the
+  // same rebind-on-write shape store.ts uses for `state`/`sinks` below, just for the
+  // Telegram-flush seam instead of the store seam.
+  {
+    files: ['src/shared/persistence/index.ts'],
+    rules: {
+      'unicorn/no-top-level-assignment-in-function': 'off',
     },
   },
 
