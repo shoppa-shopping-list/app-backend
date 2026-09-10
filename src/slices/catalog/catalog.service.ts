@@ -1,0 +1,52 @@
+import type { Product, ProductId } from '../../shared/state/types.js';
+import type { ProductUpsertInput } from './catalog.schema.js';
+
+import { getState, mutate } from '../../shared/state/store.js';
+
+// Idempotent: absent is a 0-write no-op (no mutate(), no fsync, no ping) so a repeated
+// DELETE costs nothing (D7: each mutate() is 10-50ms on SD).
+export function deleteProduct(productId: ProductId): void {
+  if (getState().products[productId] === undefined) {
+    return;
+  }
+
+  mutate((draft) => {
+    // Re-check inside the mutation (D17 defence #2): delete entries first, then the
+    // product, in one clone-and-swap — never an instant, and never a durable state on
+    // disk, where an entry points at a deleted product.
+    if (draft.products[productId] === undefined) {
+      return;
+    }
+    for (const list of Object.values(draft.lists)) {
+      delete list.entries[productId];
+    }
+    delete draft.products[productId];
+  });
+}
+
+// D14: sort by category then name — concurrent reordering becomes structurally impossible.
+export function listProducts(): Product[] {
+  return Object.values(getState().products)
+    .map((product) => ({ ...product })) // detached copies, never live handles into state
+    .toSorted((a, b) => {
+      const categoryDiff = a.category.localeCompare(b.category);
+      return categoryDiff === 0 ? a.name.localeCompare(b.name) : categoryDiff;
+    });
+}
+
+// PUT, not POST: the client-supplied UUID makes create and edit the same call, and a retry
+// a true no-op — createdAt is preserved on re-PUT (D11). Always 200, never 201-on-create.
+export function upsertProduct(productId: ProductId, input: ProductUpsertInput): Product {
+  return mutate((draft) => {
+    const existing = draft.products[productId];
+    const product: Product = {
+      category: input.category,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      id: productId,
+      name: input.name,
+      ...(input.defaultUnit !== undefined && { defaultUnit: input.defaultUnit }),
+    };
+    draft.products[productId] = product;
+    return { ...product };
+  });
+}
