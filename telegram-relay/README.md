@@ -7,13 +7,17 @@ on malina. `api.telegram.org` is blocked from that network (measured — see
 The bot token lives here as a Worker secret and is never sent to or stored on the Pi as
 part of a URL. The Pi authenticates to this Worker with a separate `RELAY_SECRET` header.
 
+Named `SHOPPA_BOT_TOKEN` rather than plain `BOT_TOKEN` — this Cloudflare account already
+hosts another bot's relay (`tg-relay`); a generic secret name on a shared account invites
+exactly the kind of cross-project mixup this avoids.
+
 ## Deploy
 
 From this directory:
 
 ```sh
 npx wrangler login          # one-time interactive Cloudflare auth (opens a browser)
-npx wrangler secret put BOT_TOKEN
+npx wrangler secret put SHOPPA_BOT_TOKEN
 npx wrangler secret put RELAY_SECRET   # same value that goes into app-backend's RELAY_SECRET
 npx wrangler deploy
 ```
@@ -42,5 +46,5 @@ All other routes, and any request missing a matching `X-Relay-Secret` header, ge
 
 ## Local dev
 
-`npx wrangler dev` runs the Worker locally; put `BOT_TOKEN`/`RELAY_SECRET` in a
+`npx wrangler dev` runs the Worker locally; put `SHOPPA_BOT_TOKEN`/`RELAY_SECRET` in a
 `.dev.vars` file (gitignored) for that — see Wrangler's docs on `.dev.vars`.
