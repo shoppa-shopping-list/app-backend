@@ -13,9 +13,9 @@ import path from 'node:path';
 
 import type { Config } from './config.js';
 
+import { catalogRoutes } from './features/catalog/catalog.routes.js';
+import { createEventsHub, eventsRoutes } from './features/events/events.routes.js';
 import { errorHandler } from './shared/error-handler.js';
-import { catalogRoutes } from './slices/catalog/catalog.routes.js';
-import { createEventsHub, eventsRoutes } from './slices/events/events.routes.js';
 
 export interface BuildAppOptions {
   // Accepted for parity with the index.ts composition wiring; nothing reads it yet.

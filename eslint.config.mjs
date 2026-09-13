@@ -153,7 +153,7 @@ export default defineConfig(
 
   // D18: services never take FastifyRequest — keeps a service callable with no HTTP dependency.
   {
-    files: ['src/slices/**/*.service.ts'],
+    files: ['src/features/**/*.service.ts'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -189,7 +189,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: ['../persistence/*', '../../slices/*'],
+              group: ['../persistence/*', '../../features/*'],
               message:
                 'store.ts imports only ./types.js — sinks are injected via configureStore() (§6.1).',
             },
@@ -211,12 +211,12 @@ export default defineConfig(
     },
   },
 
-  // Vertical slices don't reach into each other; shared code goes in shared/. Named
+  // Vertical features don't reach into each other; shared code goes in shared/. Named
   // explicitly (rather than a `../*/` glob) because a single-`*` glob also matches the
   // `../../shared/...` imports every slice legitimately makes — `..` then `..` then `shared`
   // contains `../shared/` as a substring, which a naive glob happily matches.
   {
-    files: ['src/slices/*/**'],
+    files: ['src/features/*/**'],
     rules: {
       'no-restricted-imports': [
         'error',
