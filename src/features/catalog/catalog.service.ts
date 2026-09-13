@@ -1,6 +1,8 @@
+import type { DeepReadonly } from '../../shared/state/store.js';
 import type { Product, ProductId } from '../../shared/state/types.js';
-import type { ProductUpsertInput } from './catalog.schema.js';
+import type { CatalogProduct, ProductUpsertInput } from './catalog.schema.js';
 
+import { ApiError } from '../../shared/api-error.js';
 import { getState, mutate } from '../../shared/state/store.js';
 
 // Idempotent: absent is a 0-write no-op (no mutate(), no fsync, no ping) so a repeated
@@ -25,13 +27,18 @@ export function deleteProduct(productId: ProductId): void {
 }
 
 // D14: sort by category then name — concurrent reordering becomes structurally impossible.
-export function listProducts(): Product[] {
+export function listProducts(userId: number): CatalogProduct[] {
   return Object.values(getState().products)
-    .map((product) => ({ ...product })) // detached copies, never live handles into state
+    .map((product) => toCatalogProduct(product, userId))
     .toSorted((a, b) => {
       const categoryDiff = a.category.localeCompare(b.category);
       return categoryDiff === 0 ? a.name.localeCompare(b.name) : categoryDiff;
     });
+}
+
+function toCatalogProduct(product: DeepReadonly<Product>, userId: number): CatalogProduct {
+  const { favouritedBy, ...rest } = product;
+  return { ...rest, isFavourite: favouritedBy.includes(userId) };
 }
 
 // PUT, not POST: the client-supplied UUID makes create and edit the same call, and a retry
@@ -42,11 +49,53 @@ export function upsertProduct(productId: ProductId, input: ProductUpsertInput): 
     const product: Product = {
       category: input.category,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
+      favouritedBy: existing?.favouritedBy ?? [],
       id: productId,
       name: input.name,
       ...(input.defaultUnit !== undefined && { defaultUnit: input.defaultUnit }),
     };
     draft.products[productId] = product;
     return { ...product };
+  });
+}
+
+// Idempotent like deleteProduct (D7): already-favourited is a 0-write no-op. Unlike
+// upsertProduct, this never creates a product — favouriting one that doesn't exist is a
+// client error, not an implicit create.
+export function setFavourite(productId: ProductId, userId: number): void {
+  const product = requireProduct(productId);
+  if (product.favouritedBy.includes(userId)) {
+    return;
+  }
+
+  mutate((draft) => {
+    const target = draft.products[productId];
+    if (target !== undefined) {
+      target.favouritedBy = [...target.favouritedBy, userId];
+    }
+  });
+}
+
+function requireProduct(productId: ProductId): DeepReadonly<Product> {
+  const product = getState().products[productId];
+  if (product === undefined) {
+    throw new ApiError(404, 'product_not_found', `no product with id ${productId}`);
+  }
+  return product;
+}
+
+// Idempotent like deleteProduct (D7): a missing product or one that isn't favourited by
+// this user is a 0-write no-op.
+export function unsetFavourite(productId: ProductId, userId: number): void {
+  const product = getState().products[productId];
+  if (product?.favouritedBy.includes(userId) !== true) {
+    return;
+  }
+
+  mutate((draft) => {
+    const target = draft.products[productId];
+    if (target !== undefined) {
+      target.favouritedBy = target.favouritedBy.filter((id) => id !== userId);
+    }
   });
 }

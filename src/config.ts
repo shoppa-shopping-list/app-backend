@@ -8,6 +8,24 @@ function toBoolean(value: (typeof booleanFlagValues)[number]): boolean {
 }
 
 const envSchema = z.object({
+  // Comma-separated Telegram user ids allowed to hold a session (D16, §7) — optional at
+  // parse time for the same reason as BOT_TOKEN below; auth.ts fails loudly if it's
+  // actually reached unset.
+  ALLOWED_USER_IDS: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value === undefined
+        ? undefined
+        : value
+            .split(',')
+            .map((id) => id.trim())
+            .filter((id) => id.length > 0)
+            .map(Number),
+    )
+    .refine((ids) => ids === undefined || ids.every((id) => Number.isSafeInteger(id)), {
+      message: 'ALLOWED_USER_IDS must be a comma-separated list of integers',
+    }),
   // Required locally too (not just as a Worker secret) for initData HMAC (D16, §7) —
   // optional at parse time so a fresh clone with no .env still boots; the Telegram tier
   // fails loudly (D6) rather than at config-load time if it's actually reached unset.
@@ -23,6 +41,7 @@ const envSchema = z.object({
   OWNER_USER_ID: z.coerce.number().int().optional(), // default snapshot chat (§7)
   PORT: z.coerce.number().int().positive().default(3000),
   RELAY_SECRET: z.string().optional(), // authenticates this Pi to the Worker (D26)
+  SESSION_SECRET: z.string().optional(), // signs the session cookie (D16); see ALLOWED_USER_IDS comment
   SNAPSHOT_CHAT_ID: z.coerce.number().int().optional(), // optional override, e.g. a private channel (§7)
   STATE_PATH: z.string().default('./data/state.json'),
   STRICT_DIR_FSYNC: z
@@ -33,6 +52,8 @@ const envSchema = z.object({
 });
 
 export interface Config {
+  // undefined means auth.ts fails loudly on first use (D16) — see ALLOWED_USER_IDS in envSchema.
+  allowedUserIds?: number[];
   botToken?: string;
   flushDebounceMs: number;
   host: string;
@@ -43,6 +64,7 @@ export interface Config {
   ownerUserId?: number;
   port: number;
   relaySecret?: string;
+  sessionSecret?: string;
   snapshotChatId?: number;
   statePath: string;
   // undefined defers to createLocalWriter()'s own platform default (see local.ts) — the
@@ -54,6 +76,7 @@ export interface Config {
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const parsed = envSchema.parse(stripEmptyStrings(env));
   return {
+    ...(parsed.ALLOWED_USER_IDS !== undefined && { allowedUserIds: parsed.ALLOWED_USER_IDS }),
     ...(parsed.BOT_TOKEN !== undefined && { botToken: parsed.BOT_TOKEN }),
     flushDebounceMs: parsed.FLUSH_DEBOUNCE_MS,
     host: parsed.HOST,
@@ -63,6 +86,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     ...(parsed.OWNER_USER_ID !== undefined && { ownerUserId: parsed.OWNER_USER_ID }),
     port: parsed.PORT,
     ...(parsed.RELAY_SECRET !== undefined && { relaySecret: parsed.RELAY_SECRET }),
+    ...(parsed.SESSION_SECRET !== undefined && { sessionSecret: parsed.SESSION_SECRET }),
     ...(parsed.SNAPSHOT_CHAT_ID !== undefined && { snapshotChatId: parsed.SNAPSHOT_CHAT_ID }),
     // ./data/state.json resolves against process.cwd() — "/" under systemd with no
     // WorkingDirectory= — so it must be absolute before anything reads or writes it.
