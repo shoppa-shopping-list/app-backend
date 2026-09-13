@@ -5,7 +5,7 @@ import type { Entry, List, Product, ProductColor, ProductId } from '../state/typ
 import { renderList } from './render.js';
 
 function makeProduct(overrides: { color: ProductColor; id: ProductId; name: string }): Product {
-  return { createdAt: '2026-01-01T00:00:00.000Z', ...overrides };
+  return { createdAt: '2026-01-01T00:00:00.000Z', favouritedBy: [], ...overrides };
 }
 
 function makeEntry(overrides: {

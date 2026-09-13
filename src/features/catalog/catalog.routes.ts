@@ -2,14 +2,21 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 
 import { z } from 'zod';
 
+import { requireUser } from '../../shared/auth.js';
 import {
   catalogQuerySchema,
   catalogResponseSchema,
   productParamsSchema,
-  productSchema,
+  productResponseSchema,
   productUpsertBodySchema,
 } from './catalog.schema.js';
-import { deleteProduct, listProducts, upsertProduct } from './catalog.service.js';
+import {
+  deleteProduct,
+  listProducts,
+  setFavourite,
+  unsetFavourite,
+  upsertProduct,
+} from './catalog.service.js';
 
 // No slice work is async yet — the outer plugin function stays `async` only because
 // FastifyPluginAsyncZod's type requires a Promise<void> return.
@@ -18,7 +25,7 @@ export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/catalog',
     { schema: { querystring: catalogQuerySchema, response: { 200: catalogResponseSchema } } },
-    (request) => ({ products: listProducts(request.query) }),
+    (request) => ({ products: listProducts(requireUser(request).id, request.query) }),
   );
 
   app.put(
@@ -27,7 +34,7 @@ export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
       schema: {
         body: productUpsertBodySchema,
         params: productParamsSchema,
-        response: { 200: productSchema },
+        response: { 200: productResponseSchema },
       },
     },
     (request) => upsertProduct(request.params.productId, request.body),
@@ -38,6 +45,24 @@ export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
     { schema: { params: productParamsSchema, response: { 204: z.void() } } },
     (request, reply) => {
       deleteProduct(request.params.productId);
+      reply.code(204).send();
+    },
+  );
+
+  app.put(
+    '/catalog/:productId/favourite',
+    { schema: { params: productParamsSchema, response: { 204: z.void() } } },
+    (request, reply) => {
+      setFavourite(request.params.productId, requireUser(request).id);
+      reply.code(204).send();
+    },
+  );
+
+  app.delete(
+    '/catalog/:productId/favourite',
+    { schema: { params: productParamsSchema, response: { 204: z.void() } } },
+    (request, reply) => {
+      unsetFavourite(request.params.productId, requireUser(request).id);
       reply.code(204).send();
     },
   );

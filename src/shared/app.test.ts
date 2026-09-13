@@ -9,9 +9,10 @@ import { configureStore, installState, resetStoreForTests } from './state/store.
 import { emptyState } from './state/test-helpers.js';
 
 const TEST_SESSION_SECRET = 'test-session-secret';
+const OTHER_USER_ID = TEST_USER_ID + 1;
 
 const TEST_CONFIG = loadConfig({
-  ALLOWED_USER_IDS: String(TEST_USER_ID),
+  ALLOWED_USER_IDS: `${String(TEST_USER_ID)},${String(OTHER_USER_ID)}`,
   BOT_TOKEN: TEST_BOT_TOKEN,
   SESSION_SECRET: TEST_SESSION_SECRET,
 });
@@ -267,5 +268,98 @@ describe('auth', () => {
     });
 
     expect(catalogResponse.statusCode).toBe(200);
+  });
+});
+
+describe('favourites', () => {
+  it('PUT then GET reflects isFavourite for the user who favourited it, not for others', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    const productId = '11111111-1111-4111-8111-111111111111';
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'blue', name: 'Milk' },
+      url: `/api/catalog/${productId}`,
+    });
+
+    const putResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: `/api/catalog/${productId}/favourite`,
+    });
+    expect(putResponse.statusCode).toBe(204);
+
+    const asFavouriter = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/catalog',
+    });
+    expect(asFavouriter.json()).toEqual({
+      products: [expect.objectContaining({ isFavourite: true })],
+    });
+
+    const asOtherUser = await app.inject({
+      headers: { cookie: sessionCookieHeader(OTHER_USER_ID) },
+      method: 'GET',
+      url: '/api/catalog',
+    });
+    expect(asOtherUser.json()).toEqual({
+      products: [expect.objectContaining({ isFavourite: false })],
+    });
+  });
+
+  it('DELETE .../favourite unsets it again', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    const productId = '11111111-1111-4111-8111-111111111111';
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'blue', name: 'Milk' },
+      url: `/api/catalog/${productId}`,
+    });
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: `/api/catalog/${productId}/favourite`,
+    });
+
+    const unfavouriteResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'DELETE',
+      url: `/api/catalog/${productId}/favourite`,
+    });
+    expect(unfavouriteResponse.statusCode).toBe(204);
+
+    const catalogResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/catalog',
+    });
+    expect(catalogResponse.json()).toEqual({
+      products: [expect.objectContaining({ isFavourite: false })],
+    });
+  });
+
+  it('PUT .../favourite on an unknown product is a 404', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+
+    const response = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: '/api/catalog/11111111-1111-4111-8111-111111111111/favourite',
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('PUT .../favourite without a cookie is rejected', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/api/catalog/11111111-1111-4111-8111-111111111111/favourite',
+    });
+
+    expect(response.statusCode).toBe(401);
   });
 });

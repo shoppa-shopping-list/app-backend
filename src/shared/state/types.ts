@@ -30,6 +30,7 @@ export const productSchema = z.object({
   color: productColorSchema,
   createdAt: z.iso.datetime(),
   defaultUnit: z.string().trim().min(1).max(16).optional(),
+  favouritedBy: z.array(z.number()), // Telegram user ids who have favourited this product
   id: productIdSchema,
   name: z.string().trim().min(1).max(120),
 });
