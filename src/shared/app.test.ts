@@ -131,6 +131,32 @@ describe('auth', () => {
       throw new Error('expected a session cookie to be set');
     }
     expect(sessionCookie.httpOnly).toBe(true);
+    // TEST_CONFIG has no NODE_ENV, so this exercises the development default: not Secure,
+    // since the dev server has no TLS and a Secure cookie would be silently dropped.
+    // Secure is a bare attribute (present/absent), so an absent flag parses as
+    // undefined, not `false` — assert on truthiness, not identity.
+    expect(sessionCookie.secure).toBeFalsy();
+  });
+
+  it('sets a Secure cookie in production (deployed behind nginx HTTPS, D19)', async () => {
+    const productionConfig = loadConfig({
+      ALLOWED_USER_IDS: String(TEST_USER_ID),
+      BOT_TOKEN: TEST_BOT_TOKEN,
+      NODE_ENV: 'production',
+      SESSION_SECRET: TEST_SESSION_SECRET,
+    });
+    const app = await buildApp({ config: productionConfig, log: pino({ level: 'silent' }) });
+
+    const response = await app.inject({
+      headers: { authorization: `tma ${buildInitData()}` },
+      method: 'POST',
+      url: '/api/session',
+    });
+
+    const sessionCookie = response.cookies.find((cookie) => cookie.name === 'session');
+    if (sessionCookie === undefined) {
+      throw new Error('expected a session cookie to be set');
+    }
     expect(sessionCookie.secure).toBe(true);
   });
 

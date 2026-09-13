@@ -14,15 +14,21 @@ const envSchema = z.object({
   ALLOWED_USER_IDS: z
     .string()
     .optional()
-    .transform((value) =>
-      value === undefined
-        ? undefined
-        : value
-            .split(',')
-            .map((id) => id.trim())
-            .filter((id) => id.length > 0)
-            .map(Number),
-    )
+    .transform((value) => {
+      if (value === undefined) {
+        return;
+      }
+      const ids = value
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0)
+        .map(Number);
+      // A whitespace-only or comma-only value survives stripEmptyStrings (it isn't the
+      // exact empty string) and would otherwise become `[]` here — which reads as
+      // "configured, allowlist empty" rather than "not configured", silently 401ing
+      // every real user instead of failing loudly with auth_not_configured.
+      return ids.length > 0 ? ids : undefined;
+    })
     .refine((ids) => ids === undefined || ids.every((id) => Number.isSafeInteger(id)), {
       message: 'ALLOWED_USER_IDS must be a comma-separated list of integers',
     }),

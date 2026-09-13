@@ -48,7 +48,11 @@ export function createSessionRoutes(config: Config): FastifyPluginAsyncZod {
             maxAge: SESSION_TTL_MS / 1000,
             path: '/',
             sameSite: 'lax',
-            secure: true,
+            // Secure in production (deployed behind nginx HTTPS per D19, and
+            // deploy/shoppa-backend.service pins NODE_ENV=production) — off in
+            // development/test, where the server has no TLS and a Secure cookie would be
+            // silently dropped by any real client, breaking the local handshake entirely.
+            secure: config.nodeEnv === 'production',
           })
           .code(204)
           .send();
