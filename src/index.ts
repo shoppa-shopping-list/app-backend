@@ -12,6 +12,7 @@ import { createLocalWriter } from './shared/persistence/local.js';
 import { createSnapshotSource, type SnapshotSource } from './shared/persistence/snapshot.js';
 import { configureStore } from './shared/state/store.js';
 import { createTelegramClient } from './shared/telegram.js';
+import { createShutdown } from './shutdown.js';
 
 const HARD_SHUTDOWN_TIMEOUT_MS = 25_000; // < systemd's TimeoutStopSec (30s, §7)
 
@@ -58,33 +59,14 @@ async function main(): Promise<void> {
   });
   configureTelegramFlush({ debounceMs: config.flushDebounceMs, log, snapshot });
 
-  let shuttingDown = false;
-  function shutdown(): void {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-
-    const hardTimer = setTimeout(() => {
-      log.error('shutdown timed out; forcing exit');
-      process.exit(1);
-    }, HARD_SHUTDOWN_TIMEOUT_MS);
-    hardTimer.unref();
-
-    // The flush happens here, not via fastify's onClose (which runs last-registered-first
-    // and would race an open SSE stream blocking app.close()) — §3.2.
-    // TODO(§3.3): stop scheduled jobs here once they exist — none are wired up yet.
-    void (async (): Promise<void> => {
-      try {
-        await flushNow();
-      } catch (error) {
-        log.error({ err: error }, 'final flush failed');
-      }
-      app.events.closeAll();
-      await app.close();
-      process.exit(0);
-    })();
-  }
+  const shutdown = createShutdown({
+    closeApp: () => app.close(),
+    events: app.events,
+    exit: process.exit.bind(process),
+    flushNow,
+    hardTimeoutMs: HARD_SHUTDOWN_TIMEOUT_MS,
+    log,
+  });
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

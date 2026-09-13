@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { requireUser } from '../../shared/auth.js';
 import {
+  catalogQuerySchema,
   catalogResponseSchema,
   productParamsSchema,
   productResponseSchema,
@@ -21,9 +22,11 @@ import {
 // FastifyPluginAsyncZod's type requires a Promise<void> return.
 // eslint-disable-next-line @typescript-eslint/require-await -- see comment above
 export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/catalog', { schema: { response: { 200: catalogResponseSchema } } }, (request) => ({
-    products: listProducts(requireUser(request).id),
-  }));
+  app.get(
+    '/catalog',
+    { schema: { querystring: catalogQuerySchema, response: { 200: catalogResponseSchema } } },
+    (request) => ({ products: listProducts(requireUser(request).id, request.query) }),
+  );
 
   app.put(
     '/catalog/:productId',

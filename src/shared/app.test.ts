@@ -47,7 +47,7 @@ describe('app', () => {
     const response = await app.inject({
       headers: { cookie: sessionCookieHeader() },
       method: 'PUT',
-      payload: { category: 'Dairy', name: 'Milk' },
+      payload: { color: 'blue', name: 'Milk' },
       url: '/api/catalog/not-a-uuid',
     });
 
@@ -61,7 +61,7 @@ describe('app', () => {
     const putResponse = await app.inject({
       headers: { cookie: sessionCookieHeader() },
       method: 'PUT',
-      payload: { category: 'Dairy', name: 'Milk' },
+      payload: { color: 'blue', name: 'Milk' },
       url: `/api/catalog/${productId}`,
     });
     expect(putResponse.statusCode).toBe(200);
@@ -74,6 +74,79 @@ describe('app', () => {
     expect(followUpResponse.json()).toEqual({
       products: [expect.objectContaining({ id: productId, name: 'Milk' })],
     });
+  });
+
+  it('a PUT with no color defaults to "none"', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    const productId = '11111111-1111-4111-8111-111111111111';
+
+    const putResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { name: 'Milk' },
+      url: `/api/catalog/${productId}`,
+    });
+
+    expect(putResponse.statusCode).toBe(200);
+    expect(putResponse.json()).toEqual(expect.objectContaining({ color: 'none' }));
+  });
+
+  it('GET /api/catalog?name= filters products by a case-insensitive substring match', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'blue', name: 'Whole Milk' },
+      url: '/api/catalog/11111111-1111-4111-8111-111111111111',
+    });
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'green', name: 'Bread' },
+      url: '/api/catalog/22222222-2222-4222-8222-222222222222',
+    });
+
+    const response = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/catalog?name=milk',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      products: [expect.objectContaining({ name: 'Whole Milk' })],
+    });
+  });
+
+  it('GET /api/catalog?name= (empty) returns the full catalog, not a 400', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'blue', name: 'Milk' },
+      url: '/api/catalog/11111111-1111-4111-8111-111111111111',
+    });
+
+    const response = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/catalog?name=',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ products: [expect.objectContaining({ name: 'Milk' })] });
+  });
+
+  it('GET /api/catalog?nmae=milk (unknown query key) is a 400', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+
+    const response = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/catalog?nmae=milk',
+    });
+
+    expect(response.statusCode).toBe(400);
   });
 
   it('GET /api/nope returns a JSON 404, not index.html', async () => {
@@ -205,7 +278,7 @@ describe('favourites', () => {
     await app.inject({
       headers: { cookie: sessionCookieHeader() },
       method: 'PUT',
-      payload: { category: 'Dairy', name: 'Milk' },
+      payload: { color: 'blue', name: 'Milk' },
       url: `/api/catalog/${productId}`,
     });
 
@@ -241,7 +314,7 @@ describe('favourites', () => {
     await app.inject({
       headers: { cookie: sessionCookieHeader() },
       method: 'PUT',
-      payload: { category: 'Dairy', name: 'Milk' },
+      payload: { color: 'blue', name: 'Milk' },
       url: `/api/catalog/${productId}`,
     });
     await app.inject({

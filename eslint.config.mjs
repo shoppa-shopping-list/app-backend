@@ -19,7 +19,19 @@ export default defineConfig(
   {
     // telegram-relay/ is a separate deployable (Cloudflare Worker, its own runtime and
     // secrets) — not part of this npm project's tsconfig, so typed linting can't reach it.
-    ignores: ['dist', 'coverage', 'node_modules', '.husky', 'public', 'data', 'telegram-relay'],
+    // .claude/worktrees/** holds parallel git worktrees for concurrent sessions; each has
+    // its own tsconfig.json/eslint.config.mjs, which confuses typescript-eslint's
+    // tsconfigRootDir auto-detection if they aren't excluded here.
+    ignores: [
+      'dist',
+      'coverage',
+      'node_modules',
+      '.husky',
+      'public',
+      'data',
+      'telegram-relay',
+      '.claude/worktrees',
+    ],
   },
 
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },

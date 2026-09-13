@@ -31,44 +31,73 @@ beforeEach(() => {
 });
 
 describe('upsertProduct / listProducts', () => {
-  it('an upserted product appears in listProducts(), sorted by category then name', () => {
+  it('an upserted product appears in listProducts(), sorted by color then name', () => {
     const bread = randomUUID();
     const milk = randomUUID();
-    upsertProduct(bread, { category: 'Bakery', name: 'Bread' });
-    upsertProduct(milk, { category: 'Dairy', name: 'Milk' });
+    // Bread's name sorts first alphabetically, but blue ranks after red (PRODUCT_COLORS),
+    // so color must win the tiebreak for this to prove sort-by-color-then-name.
+    upsertProduct(bread, { color: 'blue', name: 'Bread' });
+    upsertProduct(milk, { color: 'red', name: 'Milk' });
 
-    expect(listProducts(USER_ID).map((product) => product.name)).toEqual(['Bread', 'Milk']);
+    expect(listProducts(USER_ID).map((product) => product.name)).toEqual(['Milk', 'Bread']);
+  });
+
+  it('preserves createdAt across a re-PUT (D11), and a re-PUT can change name and color', () => {
+    const productId = randomUUID();
+    const first = upsertProduct(productId, { color: 'blue', name: 'Milk' });
+    const second = upsertProduct(productId, { color: 'green', name: 'Whole Milk' });
+
+    expect(second.createdAt).toBe(first.createdAt);
+    expect(second.name).toBe('Whole Milk');
+    expect(second.color).toBe('green');
+  });
+
+  it('filters by a case-insensitive substring match on name', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Whole Milk' });
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Oat Milk' });
+    upsertProduct(randomUUID(), { color: 'green', name: 'Bread' });
+
+    expect(listProducts(USER_ID, { name: 'milk' }).map((product) => product.name)).toEqual([
+      'Oat Milk',
+      'Whole Milk',
+    ]);
+  });
+
+  it('an unmatched name filter returns an empty list', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Milk' });
+
+    expect(listProducts(USER_ID, { name: 'bread' })).toEqual([]);
+  });
+
+  it('an empty or whitespace-only name filter is the same as no filter', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Milk' });
+
+    expect(listProducts(USER_ID, { name: '' }).map((product) => product.name)).toEqual(['Milk']);
+    expect(listProducts(USER_ID, { name: ' '.repeat(3) }).map((product) => product.name)).toEqual([
+      'Milk',
+    ]);
   });
 
   it('isFavourite is false for a product no one has favourited', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
 
     expect(listProducts(USER_ID)).toEqual([expect.objectContaining({ isFavourite: false })]);
   });
 
   it('never echoes favouritedBy back in the catalog DTO', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     setFavourite(productId, USER_ID);
 
     expect(listProducts(USER_ID)[0]).not.toHaveProperty('favouritedBy');
-  });
-
-  it('preserves createdAt across a re-PUT (D11)', () => {
-    const productId = randomUUID();
-    const first = upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
-    const second = upsertProduct(productId, { category: 'Dairy', name: 'Whole Milk' });
-
-    expect(second.createdAt).toBe(first.createdAt);
-    expect(second.name).toBe('Whole Milk');
   });
 });
 
 describe('deleteProduct', () => {
   it('removes the product and its entry in every list, in one write (D17.2)', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     mutate((draft) => {
       draft.lists['list-1'] = {
         entries: {
@@ -102,7 +131,7 @@ describe('deleteProduct', () => {
 
   it('deleting a product drops its favourites too — no orphan cleanup needed', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     setFavourite(productId, USER_ID);
 
     deleteProduct(productId);
@@ -114,7 +143,7 @@ describe('deleteProduct', () => {
 describe('setFavourite / unsetFavourite', () => {
   it('marks a product as favourite for that user only', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
 
     setFavourite(productId, USER_ID);
 
@@ -130,7 +159,7 @@ describe('setFavourite / unsetFavourite', () => {
 
   it('re-favouriting an already-favourited product is a 0-write no-op (D7)', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     setFavourite(productId, USER_ID);
     writeLocalSync.mockClear();
 
@@ -141,7 +170,7 @@ describe('setFavourite / unsetFavourite', () => {
 
   it('unsetFavourite removes the flag for that user only', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     setFavourite(productId, USER_ID);
     setFavourite(productId, OTHER_USER_ID);
 
@@ -155,7 +184,7 @@ describe('setFavourite / unsetFavourite', () => {
 
   it('unsetting a non-favourite is a 0-write no-op (D7)', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     writeLocalSync.mockClear();
 
     unsetFavourite(productId, USER_ID);

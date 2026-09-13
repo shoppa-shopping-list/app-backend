@@ -55,6 +55,7 @@ export const eventsRoutes: FastifyPluginAsyncZod = async (app) => {
       'Content-Type': 'text/event-stream',
       'X-Accel-Buffering': 'no',
     });
+    reply.raw.flushHeaders();
 
     const removeClient = app.events.addClient(reply);
     const keepAlive = setInterval(() => {

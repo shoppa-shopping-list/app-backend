@@ -1,9 +1,10 @@
 import type { DeepReadonly } from '../../shared/state/store.js';
 import type { Product, ProductId } from '../../shared/state/types.js';
-import type { CatalogProduct, ProductUpsertInput } from './catalog.schema.js';
+import type { CatalogProduct, CatalogQuery, ProductUpsertInput } from './catalog.schema.js';
 
 import { ApiError } from '../../shared/api-error.js';
 import { getState, mutate } from '../../shared/state/store.js';
+import { PRODUCT_COLORS } from '../../shared/state/types.js';
 
 // Idempotent: absent is a 0-write no-op (no mutate(), no fsync, no ping) so a repeated
 // DELETE costs nothing (D7: each mutate() is 10-50ms on SD).
@@ -26,13 +27,20 @@ export function deleteProduct(productId: ProductId): void {
   });
 }
 
-// D14: sort by category then name — concurrent reordering becomes structurally impossible.
-export function listProducts(userId: number): CatalogProduct[] {
+// D14: sort by color then name — concurrent reordering becomes structurally impossible.
+// `name` is an optional case-insensitive substring match, so callers can search the
+// catalog without a separate endpoint or code path. An empty/whitespace-only name is
+// treated the same as no filter at all.
+export function listProducts(userId: number, filter?: CatalogQuery): CatalogProduct[] {
+  const trimmedName = filter?.name?.trim();
+  const needle =
+    trimmedName !== undefined && trimmedName !== '' ? trimmedName.toLowerCase() : undefined;
   return Object.values(getState().products)
+    .filter((product) => needle === undefined || product.name.toLowerCase().includes(needle))
     .map((product) => toCatalogProduct(product, userId))
     .toSorted((a, b) => {
-      const categoryDiff = a.category.localeCompare(b.category);
-      return categoryDiff === 0 ? a.name.localeCompare(b.name) : categoryDiff;
+      const colorDiff = PRODUCT_COLORS.indexOf(a.color) - PRODUCT_COLORS.indexOf(b.color);
+      return colorDiff === 0 ? a.name.localeCompare(b.name) : colorDiff;
     });
 }
 
@@ -47,7 +55,7 @@ export function upsertProduct(productId: ProductId, input: ProductUpsertInput): 
   return mutate((draft) => {
     const existing = draft.products[productId];
     const product: Product = {
-      category: input.category,
+      color: input.color,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       favouritedBy: existing?.favouritedBy ?? [],
       id: productId,

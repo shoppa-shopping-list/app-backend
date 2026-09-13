@@ -29,6 +29,9 @@ the Pi, restarts the service.
 
 ## Not wired up here
 
-No nginx server block, no TLS, no Cloudflare relay — `/api` stays unauthenticated
-(CLAUDE.md), so the service is reachable only as `127.0.0.1:3000` on the Pi itself.
+No nginx server block, no TLS, no Cloudflare relay — auth exists (`POST /api/session` +
+cookie-guarded routes, see root CLAUDE.md), but there's still no public HTTPS story
+(D19), so the service is reachable only as `127.0.0.1:3000` on the Pi itself.
+`BOT_TOKEN`, `SESSION_SECRET`, and `ALLOWED_USER_IDS` need to be set in `.env` for the
+handshake to work at all here — see `.env.example`.
 See architecture-design.md §7 for what's still open before this is internet-facing.
