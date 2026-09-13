@@ -5,6 +5,7 @@ import type { ReadSnapshotResult, SnapshotSource } from './shared/persistence/sn
 
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
+import { createSessionCookie } from './shared/auth.js';
 import {
   configureTelegramFlush,
   flushNow,
@@ -15,12 +16,18 @@ import { configureStore, installState, mutate, resetStoreForTests } from './shar
 import { emptyState } from './shared/state/test-helpers.js';
 import { createShutdown } from './shutdown.js';
 
+const TEST_SESSION_SECRET = 'test-session-secret';
+
 function makeSnapshot(overrides: Partial<SnapshotSource> = {}): SnapshotSource {
   return {
     readSnapshot: vi.fn((): Promise<ReadSnapshotResult> => Promise.resolve({ kind: 'no-pin' })),
     writeSnapshot: vi.fn((): Promise<number> => Promise.resolve(999)),
     ...overrides,
   };
+}
+
+function sessionCookieHeader(): string {
+  return `session=${createSessionCookie(1, TEST_SESSION_SECRET, Date.now())}`;
 }
 
 beforeEach(() => {
@@ -38,7 +45,10 @@ describe('shutdown', () => {
   // §3.2's whole point is that this must not be the thing that blocks shutdown.
   it('flushes the dirty state to Telegram and exits 0 while an SSE stream is open', async () => {
     const log = pino({ level: 'silent' });
-    const app = await buildApp({ config: loadConfig({}), log });
+    const app = await buildApp({
+      config: loadConfig({ SESSION_SECRET: TEST_SESSION_SECRET }),
+      log,
+    });
     installState(emptyState());
     const snapshot = makeSnapshot();
     configureStore({ scheduleTelegramFlush, writeLocalSync: () => {} });
@@ -57,7 +67,9 @@ describe('shutdown', () => {
     }
     // Opened and deliberately never closed or read from — this is the open SSE stream
     // that must not be allowed to block shutdown.
-    const sseResponse = await fetch(`http://127.0.0.1:${String(address.port)}/api/events`);
+    const sseResponse = await fetch(`http://127.0.0.1:${String(address.port)}/api/events`, {
+      headers: { cookie: sessionCookieHeader() },
+    });
     expect(sseResponse.status).toBe(200);
 
     const exit = vi.fn();
