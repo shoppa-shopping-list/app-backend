@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Entry, List, Product, ProductId } from '../state/types.js';
+import type { Entry, List, Product, ProductColor, ProductId } from '../state/types.js';
 
 import { renderList } from './render.js';
 
-function makeProduct(overrides: { category: string; id: ProductId; name: string }): Product {
+function makeProduct(overrides: { color: ProductColor; id: ProductId; name: string }): Product {
   return { createdAt: '2026-01-01T00:00:00.000Z', ...overrides };
 }
 
@@ -33,11 +33,11 @@ function now(): Date {
 describe('renderList', () => {
   const footer = `updated ${now().toTimeString().slice(0, 5)}`;
 
-  it('groups entries by category then name, and appends the footer', () => {
+  it('groups entries by color then name, and appends the footer', () => {
     const products: Record<ProductId, Product> = {
-      apples: makeProduct({ category: 'Produce', id: 'apples', name: 'Apples' }),
-      cheese: makeProduct({ category: 'Dairy', id: 'cheese', name: 'Cheese' }),
-      milk: makeProduct({ category: 'Dairy', id: 'milk', name: 'Milk' }),
+      apples: makeProduct({ color: 'green', id: 'apples', name: 'Apples' }),
+      cheese: makeProduct({ color: 'blue', id: 'cheese', name: 'Cheese' }),
+      milk: makeProduct({ color: 'blue', id: 'milk', name: 'Milk' }),
     };
     const list = makeList({
       apples: makeEntry({ productId: 'apples', quantity: 6 }),
@@ -47,9 +47,26 @@ describe('renderList', () => {
 
     const text = renderList(list, products, now);
 
+    // green ranks before blue in PRODUCT_COLORS, so its group heads the list even
+    // though "Apples" sorts after "Cheese"/"Milk" alphabetically.
     expect(text).toBe(
-      `Dairy\n• Cheese — 1 pack\n• Milk — 2 (whole)\n\nProduce\n• Apples — 6\n\n${footer}`,
+      `🟢 Green\n• Apples — 6\n\n🔵 Blue\n• Cheese — 1 pack\n• Milk — 2 (whole)\n\n${footer}`,
     );
+  });
+
+  it('groups products with no color under "No color", ranked after every real color', () => {
+    const products: Record<ProductId, Product> = {
+      milk: makeProduct({ color: 'none', id: 'milk', name: 'Milk' }),
+      salt: makeProduct({ color: 'red', id: 'salt', name: 'Salt' }),
+    };
+    const list = makeList({
+      milk: makeEntry({ productId: 'milk', quantity: 1 }),
+      salt: makeEntry({ productId: 'salt', quantity: 1 }),
+    });
+
+    const text = renderList(list, products, now);
+
+    expect(text).toBe(`🔴 Red\n• Salt — 1\n\nNo color\n• Milk — 1\n\n${footer}`);
   });
 
   it('groups an entry whose product is missing under Unsorted rather than throwing', () => {
@@ -66,7 +83,7 @@ describe('renderList', () => {
     for (let i = 0; i < 400; i += 1) {
       const id = `p${String(i)}`;
       products[id] = makeProduct({
-        category: 'Bulk',
+        color: 'blue',
         id,
         name: `Product number ${String(i)} with a needlessly long name`,
       });
@@ -83,7 +100,7 @@ describe('renderList', () => {
 
   it('fits well within 4096 chars for a realistic list (no truncation)', () => {
     const products: Record<ProductId, Product> = {
-      milk: makeProduct({ category: 'Dairy', id: 'milk', name: 'Milk' }),
+      milk: makeProduct({ color: 'blue', id: 'milk', name: 'Milk' }),
     };
     const list = makeList({ milk: makeEntry({ productId: 'milk', quantity: 2 }) });
 

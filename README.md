@@ -27,6 +27,9 @@ before pushing.
 /api/catalog/:productId`. The reference slice — copy its three-file shape (`*.schema.ts` /
   `*.service.ts` / `*.routes.ts`) for anything new.
 - **`events`** slice: `GET /api/events`, an opaque SSE "something changed" ping.
+- **Auth**: `POST /api/session` exchanges a Telegram `initData` payload (local HMAC, no
+  network call) for a signed `httpOnly` session cookie; every other `/api` route sits behind
+  a preHandler that requires it. See `shared/auth.ts` and `features/session/`.
 - State: RAM + `data/state.json`, atomic fsync'd writes, clone-and-swap rollback in `mutate()`
   on any throw.
 - **Telegram tier**: `shared/telegram.ts` and `shared/persistence/{snapshot,render}.ts` are fully
@@ -39,8 +42,10 @@ before pushing.
 
 ## What's stubbed, and why
 
-- **No auth — every `/api` route is open.** Safe only because Fastify binds `127.0.0.1` and
-  nginx isn't proxying to it yet. **Do not add the nginx server block until auth exists.**
+- **No public HTTPS exposure yet.** Auth exists now (see above), but the nginx server block
+  is still deliberately not added — that's gated on a domain + cert decision (D19), not on
+  auth. The service is reachable only as `127.0.0.1:3000` on the Pi itself. **Do not add the
+  nginx server block until that's resolved.**
 - **No `list` slice** — it's a copy of `catalog` plus a membership check per route, omitted so a
   half-built copy doesn't add noise without a decision.
 

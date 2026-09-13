@@ -22,29 +22,56 @@ beforeEach(() => {
 });
 
 describe('upsertProduct / listProducts', () => {
-  it('an upserted product appears in listProducts(), sorted by category then name', () => {
+  it('an upserted product appears in listProducts(), sorted by color then name', () => {
     const bread = randomUUID();
     const milk = randomUUID();
-    upsertProduct(bread, { category: 'Bakery', name: 'Bread' });
-    upsertProduct(milk, { category: 'Dairy', name: 'Milk' });
+    // Bread's name sorts first alphabetically, but blue ranks after red (PRODUCT_COLORS),
+    // so color must win the tiebreak for this to prove sort-by-color-then-name.
+    upsertProduct(bread, { color: 'blue', name: 'Bread' });
+    upsertProduct(milk, { color: 'red', name: 'Milk' });
 
-    expect(listProducts().map((product) => product.name)).toEqual(['Bread', 'Milk']);
+    expect(listProducts().map((product) => product.name)).toEqual(['Milk', 'Bread']);
   });
 
-  it('preserves createdAt across a re-PUT (D11)', () => {
+  it('preserves createdAt across a re-PUT (D11), and a re-PUT can change name and color', () => {
     const productId = randomUUID();
-    const first = upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
-    const second = upsertProduct(productId, { category: 'Dairy', name: 'Whole Milk' });
+    const first = upsertProduct(productId, { color: 'blue', name: 'Milk' });
+    const second = upsertProduct(productId, { color: 'green', name: 'Whole Milk' });
 
     expect(second.createdAt).toBe(first.createdAt);
     expect(second.name).toBe('Whole Milk');
+    expect(second.color).toBe('green');
+  });
+
+  it('filters by a case-insensitive substring match on name', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Whole Milk' });
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Oat Milk' });
+    upsertProduct(randomUUID(), { color: 'green', name: 'Bread' });
+
+    expect(listProducts({ name: 'milk' }).map((product) => product.name)).toEqual([
+      'Oat Milk',
+      'Whole Milk',
+    ]);
+  });
+
+  it('an unmatched name filter returns an empty list', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Milk' });
+
+    expect(listProducts({ name: 'bread' })).toEqual([]);
+  });
+
+  it('an empty or whitespace-only name filter is the same as no filter', () => {
+    upsertProduct(randomUUID(), { color: 'blue', name: 'Milk' });
+
+    expect(listProducts({ name: '' }).map((product) => product.name)).toEqual(['Milk']);
+    expect(listProducts({ name: ' '.repeat(3) }).map((product) => product.name)).toEqual(['Milk']);
   });
 });
 
 describe('deleteProduct', () => {
   it('removes the product and its entry in every list, in one write (D17.2)', () => {
     const productId = randomUUID();
-    upsertProduct(productId, { category: 'Dairy', name: 'Milk' });
+    upsertProduct(productId, { color: 'blue', name: 'Milk' });
     mutate((draft) => {
       draft.lists['list-1'] = {
         entries: {

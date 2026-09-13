@@ -9,8 +9,25 @@ export type ProductId = z.infer<typeof productIdSchema>;
 export const listIdSchema = z.uuid();
 export type ListId = z.infer<typeof listIdSchema>;
 
+// Canonical order doubles as display/group rank (D14) — deliberate, not alphabetical,
+// so 'none' sits predictably last instead of wherever it falls in string sort.
+export const PRODUCT_COLORS = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'brown',
+  'black',
+  'white',
+  'none',
+] as const;
+export const productColorSchema = z.enum(PRODUCT_COLORS).default('none');
+export type ProductColor = z.infer<typeof productColorSchema>;
+
 export const productSchema = z.object({
-  category: z.string().trim().min(1).max(60),
+  color: productColorSchema,
   createdAt: z.iso.datetime(),
   defaultUnit: z.string().trim().min(1).max(16).optional(),
   id: productIdSchema,

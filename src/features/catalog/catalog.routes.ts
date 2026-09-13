@@ -3,6 +3,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 
 import {
+  catalogQuerySchema,
   catalogResponseSchema,
   productParamsSchema,
   productSchema,
@@ -14,9 +15,11 @@ import { deleteProduct, listProducts, upsertProduct } from './catalog.service.js
 // FastifyPluginAsyncZod's type requires a Promise<void> return.
 // eslint-disable-next-line @typescript-eslint/require-await -- see comment above
 export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/catalog', { schema: { response: { 200: catalogResponseSchema } } }, () => ({
-    products: listProducts(),
-  }));
+  app.get(
+    '/catalog',
+    { schema: { querystring: catalogQuerySchema, response: { 200: catalogResponseSchema } } },
+    (request) => ({ products: listProducts(request.query) }),
+  );
 
   app.put(
     '/catalog/:productId',

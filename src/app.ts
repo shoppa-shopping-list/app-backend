@@ -1,5 +1,6 @@
 import type { Logger } from 'pino';
 
+import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import fastifySwagger from '@fastify/swagger';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
@@ -15,10 +16,11 @@ import type { Config } from './config.js';
 
 import { catalogRoutes } from './features/catalog/catalog.routes.js';
 import { createEventsHub, eventsRoutes } from './features/events/events.routes.js';
+import { createSessionRoutes } from './features/session/session.routes.js';
+import { createAuthPreHandler } from './shared/auth.js';
 import { errorHandler } from './shared/error-handler.js';
 
 export interface BuildAppOptions {
-  // Accepted for parity with the index.ts composition wiring; nothing reads it yet.
   config: Config;
   log: Logger;
 }
@@ -26,6 +28,7 @@ export interface BuildAppOptions {
 // Never hydrates state — that's index.ts's job. Lets openapi.ts and app.inject() tests
 // run with no data/state.json.
 export async function buildApp(options: BuildAppOptions): Promise<FastifyInstance> {
+  const { config } = options;
   const app = Fastify({
     forceCloseConnections: true,
     // The cast below looks unneeded at this call site, but without it TS infers
@@ -48,11 +51,19 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
   app.decorate('events', createEventsHub());
 
-  // Slices register under ONE /api scope: that scope is where the auth preHandler goes later.
+  // POST /api/session is the one unauthenticated route (§5); every other /api route
+  // sits in the sibling "guarded" scope below, behind its own preHandler — Fastify
+  // encapsulation does the exemption, so there's no path allowlist to keep in sync (D16).
   await app.register(
     async (api) => {
-      await api.register(catalogRoutes);
-      await api.register(eventsRoutes);
+      await api.register(fastifyCookie);
+      await api.register(createSessionRoutes(config));
+
+      await api.register(async (guarded) => {
+        guarded.addHook('preHandler', createAuthPreHandler(config.sessionSecret));
+        await guarded.register(catalogRoutes);
+        await guarded.register(eventsRoutes);
+      });
     },
     { prefix: '/api' },
   );

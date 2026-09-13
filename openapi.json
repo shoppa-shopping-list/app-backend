@@ -8,8 +8,43 @@
     "schemas": {}
   },
   "paths": {
+    "/api/session": {
+      "post": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "header",
+            "name": "authorization",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/catalog": {
       "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "in": "query",
+            "name": "name",
+            "required": false
+          }
+        ],
         "responses": {
           "200": {
             "description": "Default Response",
@@ -23,10 +58,21 @@
                       "items": {
                         "type": "object",
                         "properties": {
-                          "category": {
+                          "color": {
+                            "default": "none",
                             "type": "string",
-                            "minLength": 1,
-                            "maxLength": 60
+                            "enum": [
+                              "red",
+                              "orange",
+                              "yellow",
+                              "green",
+                              "blue",
+                              "purple",
+                              "brown",
+                              "black",
+                              "white",
+                              "none"
+                            ]
                           },
                           "createdAt": {
                             "type": "string",
@@ -50,7 +96,7 @@
                           }
                         },
                         "required": [
-                          "category",
+                          "color",
                           "createdAt",
                           "id",
                           "name"
@@ -79,10 +125,21 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "category": {
+                  "color": {
+                    "default": "none",
                     "type": "string",
-                    "minLength": 1,
-                    "maxLength": 60
+                    "enum": [
+                      "red",
+                      "orange",
+                      "yellow",
+                      "green",
+                      "blue",
+                      "purple",
+                      "brown",
+                      "black",
+                      "white",
+                      "none"
+                    ]
                   },
                   "defaultUnit": {
                     "type": "string",
@@ -96,7 +153,6 @@
                   }
                 },
                 "required": [
-                  "category",
                   "name"
                 ],
                 "additionalProperties": false
@@ -124,10 +180,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "category": {
+                    "color": {
+                      "default": "none",
                       "type": "string",
-                      "minLength": 1,
-                      "maxLength": 60
+                      "enum": [
+                        "red",
+                        "orange",
+                        "yellow",
+                        "green",
+                        "blue",
+                        "purple",
+                        "brown",
+                        "black",
+                        "white",
+                        "none"
+                      ]
                     },
                     "createdAt": {
                       "type": "string",
@@ -151,7 +218,7 @@
                     }
                   },
                   "required": [
-                    "category",
+                    "color",
                     "createdAt",
                     "id",
                     "name"
