@@ -31,6 +31,7 @@ function seedProduct(overrides?: Partial<Product>): Product {
   const product: Product = {
     color: 'blue',
     createdAt: new Date().toISOString(),
+    favouritedBy: [],
     id: randomUUID(),
     name: 'Milk',
     ...overrides,
