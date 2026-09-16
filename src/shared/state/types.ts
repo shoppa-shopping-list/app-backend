@@ -6,9 +6,6 @@ export const CURRENT_VERSION = 1;
 export const productIdSchema = z.uuid();
 export type ProductId = z.infer<typeof productIdSchema>;
 
-export const listIdSchema = z.uuid();
-export type ListId = z.infer<typeof listIdSchema>;
-
 // Canonical order doubles as display/group rank (D14) — deliberate, not alphabetical,
 // so 'none' sits predictably last instead of wherever it falls in string sort.
 export const PRODUCT_COLORS = [
@@ -26,6 +23,16 @@ export const PRODUCT_COLORS = [
 export const productColorSchema = z.enum(PRODUCT_COLORS).default('none');
 export type ProductColor = z.infer<typeof productColorSchema>;
 
+// D14: sort by color rank, then name — shared by catalog's listProducts() and
+// shopping-list's listShoppingListItems() so the ordering rule lives in one place.
+export function compareByColorThenName(
+  a: { color: ProductColor; name: string },
+  b: { color: ProductColor; name: string },
+): number {
+  const colorDiff = PRODUCT_COLORS.indexOf(a.color) - PRODUCT_COLORS.indexOf(b.color);
+  return colorDiff === 0 ? a.name.localeCompare(b.name) : colorDiff;
+}
+
 export const productSchema = z.object({
   color: productColorSchema,
   createdAt: z.iso.datetime(),
@@ -36,24 +43,16 @@ export const productSchema = z.object({
 });
 export type Product = z.infer<typeof productSchema>;
 
-export const entrySchema = z.object({
+// D27: one flat, shared shopping list — no separate item id, keyed by productId
+// (D10), so a product is on the list at most once and a re-PUT is an idempotent
+// refresh. name/color are joined from `products` at read time, never copied here
+// (D27) — a catalog rename/recolor should show up everywhere, and copying would leave
+// `deleteProduct`'s cascade (D17) removing an orphaned duplicate instead of a pointer.
+export const shoppingListItemSchema = z.object({
   addedAt: z.iso.datetime(),
   addedBy: z.number(),
-  note: z.string().trim().max(500).optional(),
-  productId: productIdSchema,
-  quantity: z.number().positive(),
-  unit: z.string().trim().min(1).max(16).optional(),
-  updatedAt: z.iso.datetime(), // server receipt time (D13)
 });
-export type Entry = z.infer<typeof entrySchema>;
-
-export const listSchema = z.object({
-  entries: z.record(productIdSchema, entrySchema),
-  id: listIdSchema,
-  memberIds: z.array(z.number()),
-  name: z.string().trim().min(1).max(120),
-});
-export type List = z.infer<typeof listSchema>;
+export type ShoppingListItem = z.infer<typeof shoppingListItemSchema>;
 
 const metaSchema = z.object({
   snapshotMessageId: z.number().optional(), // required to WRITE the snapshot (D4)
@@ -62,9 +61,11 @@ const metaSchema = z.object({
 });
 
 export const stateSchema = z.object({
-  lists: z.record(listIdSchema, listSchema),
   meta: metaSchema,
   products: z.record(productIdSchema, productSchema),
+  // .default({}): lets an old data/state.json (no `shoppingList` key yet) still parse
+  // — no CURRENT_VERSION bump, no migrate() case needed (D27).
+  shoppingList: z.record(productIdSchema, shoppingListItemSchema).default({}),
   version: z.literal(CURRENT_VERSION),
 });
 export type State = z.infer<typeof stateSchema>;

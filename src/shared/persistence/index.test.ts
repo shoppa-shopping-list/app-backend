@@ -37,9 +37,7 @@ describe('hydrate', () => {
 
     const state = getState();
     expect(state.version).toBe(1);
-    const lists = Object.values(state.lists);
-    expect(lists).toHaveLength(1);
-    expect(lists[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(state.shoppingList).toEqual({});
     expect(snapshot.writeSnapshot).toHaveBeenCalledWith(expect.any(String), undefined);
   });
 

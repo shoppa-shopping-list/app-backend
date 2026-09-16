@@ -4,7 +4,7 @@ import type { CatalogProduct, CatalogQuery, ProductUpsertInput } from './catalog
 
 import { ApiError } from '../../shared/api-error.js';
 import { getState, mutate } from '../../shared/state/store.js';
-import { PRODUCT_COLORS } from '../../shared/state/types.js';
+import { compareByColorThenName } from '../../shared/state/types.js';
 
 // Idempotent: absent is a 0-write no-op (no mutate(), no fsync, no ping) so a repeated
 // DELETE costs nothing (D7: each mutate() is 10-50ms on SD).
@@ -14,15 +14,13 @@ export function deleteProduct(productId: ProductId): void {
   }
 
   mutate((draft) => {
-    // Re-check inside the mutation (D17 defence #2): delete entries first, then the
-    // product, in one clone-and-swap — never an instant, and never a durable state on
-    // disk, where an entry points at a deleted product.
+    // Re-check inside the mutation (D17 defence #2): delete the shopping-list entry
+    // first, then the product, in one clone-and-swap — never an instant, and never a
+    // durable state on disk, where a shopping-list item points at a deleted product.
     if (draft.products[productId] === undefined) {
       return;
     }
-    for (const list of Object.values(draft.lists)) {
-      delete list.entries[productId];
-    }
+    delete draft.shoppingList[productId];
     delete draft.products[productId];
   });
 }
@@ -38,10 +36,7 @@ export function listProducts(userId: number, filter?: CatalogQuery): CatalogProd
   return Object.values(getState().products)
     .filter((product) => needle === undefined || product.name.toLowerCase().includes(needle))
     .map((product) => toCatalogProduct(product, userId))
-    .toSorted((a, b) => {
-      const colorDiff = PRODUCT_COLORS.indexOf(a.color) - PRODUCT_COLORS.indexOf(b.color);
-      return colorDiff === 0 ? a.name.localeCompare(b.name) : colorDiff;
-    });
+    .toSorted(compareByColorThenName);
 }
 
 function toCatalogProduct(product: DeepReadonly<Product>, userId: number): CatalogProduct {
