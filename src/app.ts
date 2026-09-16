@@ -17,6 +17,7 @@ import type { Config } from './config.js';
 import { catalogRoutes } from './features/catalog/catalog.routes.js';
 import { createEventsHub, eventsRoutes } from './features/events/events.routes.js';
 import { createSessionRoutes } from './features/session/session.routes.js';
+import { shoppingListRoutes } from './features/shopping-list/shopping-list.routes.js';
 import { createAuthPreHandler } from './shared/auth.js';
 import { errorHandler } from './shared/error-handler.js';
 
@@ -63,6 +64,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         guarded.addHook('preHandler', createAuthPreHandler(config.sessionSecret));
         await guarded.register(catalogRoutes);
         await guarded.register(eventsRoutes);
+        await guarded.register(shoppingListRoutes);
       });
     },
     { prefix: '/api' },

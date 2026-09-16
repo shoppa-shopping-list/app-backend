@@ -159,6 +159,86 @@ describe('app', () => {
   });
 });
 
+describe('shopping-list', () => {
+  const productId = '11111111-1111-4111-8111-111111111111';
+
+  async function seedProduct(app: Awaited<ReturnType<typeof buildApp>>): Promise<void> {
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      payload: { color: 'blue', name: 'Milk' },
+      url: `/api/catalog/${productId}`,
+    });
+  }
+
+  it('a PUT adds the item and it appears in a follow-up GET', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    await seedProduct(app);
+
+    const putResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: `/api/shopping-list/${productId}`,
+    });
+    expect(putResponse.statusCode).toBe(200);
+    expect(putResponse.json()).toEqual(
+      expect.objectContaining({ color: 'blue', name: 'Milk', productId }),
+    );
+
+    const followUpResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/shopping-list',
+    });
+    expect(followUpResponse.json()).toEqual({
+      items: [expect.objectContaining({ name: 'Milk', productId })],
+    });
+  });
+
+  it('PUT /api/shopping-list/:productId for an unknown product returns 404', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+
+    const response = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: `/api/shopping-list/${productId}`,
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('a DELETE removes the item, and is idempotent on a repeat call', async () => {
+    const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });
+    await seedProduct(app);
+    await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'PUT',
+      url: `/api/shopping-list/${productId}`,
+    });
+
+    const firstResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'DELETE',
+      url: `/api/shopping-list/${productId}`,
+    });
+    expect(firstResponse.statusCode).toBe(204);
+
+    const followUpResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'GET',
+      url: '/api/shopping-list',
+    });
+    expect(followUpResponse.json()).toEqual({ items: [] });
+
+    const secondResponse = await app.inject({
+      headers: { cookie: sessionCookieHeader() },
+      method: 'DELETE',
+      url: `/api/shopping-list/${productId}`,
+    });
+    expect(secondResponse.statusCode).toBe(204);
+  });
+});
+
 describe('auth', () => {
   it('GET /api/catalog without a cookie is rejected', async () => {
     const app = await buildApp({ config: TEST_CONFIG, log: pino({ level: 'silent' }) });

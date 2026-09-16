@@ -1,7 +1,5 @@
 import type { Logger } from 'pino';
 
-import { randomUUID } from 'node:crypto';
-
 import type { State } from '../state/types.js';
 import type { LocalWriter } from './local.js';
 import type { SnapshotSource } from './snapshot.js';
@@ -224,18 +222,10 @@ export function resetTelegramFlushForTests(): void {
 }
 
 export function seedEmptyState(): State {
-  const listId = randomUUID();
   return {
-    lists: {
-      [listId]: {
-        entries: {},
-        id: listId,
-        memberIds: [],
-        name: 'Shopping list',
-      },
-    },
     meta: { viewMessageIds: {} },
     products: {},
+    shoppingList: {},
     version: 1,
   };
 }

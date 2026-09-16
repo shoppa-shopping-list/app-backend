@@ -235,7 +235,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: ['../catalog/*', '../events/*'],
+              group: ['../catalog/*', '../events/*', '../shopping-list/*'],
               message: 'Slices are vertical. Share via src/shared/.',
             },
           ],

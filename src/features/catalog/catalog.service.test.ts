@@ -95,24 +95,11 @@ describe('upsertProduct / listProducts', () => {
 });
 
 describe('deleteProduct', () => {
-  it('removes the product and its entry in every list, in one write (D17.2)', () => {
+  it('removes the product and its shopping-list item, in one write (D17.2)', () => {
     const productId = randomUUID();
     upsertProduct(productId, { color: 'blue', name: 'Milk' });
     mutate((draft) => {
-      draft.lists['list-1'] = {
-        entries: {
-          [productId]: {
-            addedAt: new Date().toISOString(),
-            addedBy: 1,
-            productId,
-            quantity: 1,
-            updatedAt: new Date().toISOString(),
-          },
-        },
-        id: 'list-1',
-        memberIds: [],
-        name: 'Groceries',
-      };
+      draft.shoppingList[productId] = { addedAt: new Date().toISOString(), addedBy: 1 };
     });
     writeLocalSync.mockClear();
 
@@ -121,7 +108,7 @@ describe('deleteProduct', () => {
     expect(listProducts(USER_ID)).toEqual([]);
     expect(writeLocalSync).toHaveBeenCalledTimes(1);
     const [written] = writeLocalSync.mock.calls.at(-1) as [State];
-    expect(written.lists['list-1']?.entries[productId]).toBeUndefined();
+    expect(written.shoppingList[productId]).toBeUndefined();
   });
 
   it('deleting an unknown id is a 0-write no-op', () => {
