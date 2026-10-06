@@ -8,3 +8,5 @@ data/*
 .claude
 .idea
 docs
+public/*
+!public/.gitkeep

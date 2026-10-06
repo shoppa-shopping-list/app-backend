@@ -9,6 +9,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "$SCRIPT_DIR"
 
+# public/ is gitignored — the rsync --delete below would wipe the deployed frontend if it's empty.
+if [[ ! -f public/index.html ]]; then
+  echo "public/index.html missing — run 'npm run build:backend' in app-frontend first" >&2
+  exit 1
+fi
+
 echo "==> building"
 npm run build
 
