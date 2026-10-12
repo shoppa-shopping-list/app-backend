@@ -29,7 +29,7 @@ job builds `app-frontend@main` into `public/`, bundles `dist/` + `public/` + pro
 `node_modules` into `shoppa-backend.tar.gz`, attests it (Sigstore build provenance) and
 publishes it as the latest `deploy-*` GitHub Release (keeps 5).
 
-On malina, `pull-deploy.sh` runs from `lit`'s crontab every 3 min. It only acts when
+On malina, `pull-deploy.sh` runs from `lit`'s crontab every minute. It only acts when
 the latest release tag differs from `current/RELEASE`. It then verifies the attestation
 offline with `gh attestation verify`: signer must be this repo's `ci.yml`, on
 `refs/heads/main`, on a GitHub-hosted runner. If that passes, it unpacks to
@@ -54,7 +54,7 @@ sudo tar -xzf gh.tgz -C /usr/local/lib && sudo ln -sf /usr/local/lib/gh_2.102.0_
 scp deploy/pull-deploy.sh malina:projects/shoppa-app-backend/
 scp deploy/shoppa-backend.service malina:/tmp/ && ssh malina 'sudo mv /tmp/shoppa-backend.service /etc/systemd/system/ && sudo systemctl daemon-reload'
 # cron
-*/3 * * * * /home/lit/projects/shoppa-app-backend/pull-deploy.sh >> /home/lit/projects/shoppa-app-backend/pull-deploy.log 2>&1
+* * * * * /home/lit/projects/shoppa-app-backend/pull-deploy.sh >> /home/lit/projects/shoppa-app-backend/pull-deploy.log 2>&1
 ```
 
 Rollback by hand: `ln -sfn releases/<older-tag> current.tmp && mv -T current.tmp current &&
