@@ -67,7 +67,7 @@ swap_to() {
 healthy() {
   for _ in $(seq 1 30); do
     sleep 2
-    curl -fsS --max-time 3 -o /dev/null "$HEALTH_URL" && return 0
+    curl -fs --max-time 3 -o /dev/null "$HEALTH_URL" && return 0
   done
   return 1
 }
