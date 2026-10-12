@@ -18,12 +18,12 @@ export function buildInitData(
   const fields: Record<string, string> = {
     auth_date: String(Math.floor(Date.now() / 1000)),
     query_id: 'AAH-test-query-id',
-    signature: 'not-part-of-the-digest',
+    signature: 'ed25519-signature-placeholder',
     user: JSON.stringify({ first_name: 'Ada', id: TEST_USER_ID }),
     ...overrides,
   };
   const dataCheckString = Object.entries(fields)
-    .filter(([key]) => key !== 'hash' && key !== 'signature')
+    .filter(([key]) => key !== 'hash')
     .toSorted(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join('\n');

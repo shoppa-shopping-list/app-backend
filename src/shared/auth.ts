@@ -9,11 +9,10 @@ const AUTH_DATE_FRESHNESS_MS = 5 * 60 * 1000; // D16: auth_date can't be refresh
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // §5.1: "~12h"
 export const SESSION_COOKIE_NAME = 'session';
 const WEBAPP_DATA_HMAC_KEY = 'WebAppData';
-// Confirmed against the Ed25519 (third-party) verification section of Telegram's bot
-// docs, which spells out its excluded fields explicitly — the plain HMAC section only
-// says "all received fields" without naming any. Both methods share the same base
-// construction, so both exclusions apply here too. Resolves §9.3.
-const EXCLUDED_INIT_DATA_FIELDS = new Set(['hash', 'signature']);
+// Only `hash` — the bot-token HMAC covers "all received fields", `signature` included.
+// Excluding `signature` belongs to the separate Ed25519 (third-party) check, not this one;
+// borrowing that exclusion 401'd every real Telegram client (§9.3, corrected 2026-10-06).
+const EXCLUDED_INIT_DATA_FIELDS = new Set(['hash']);
 
 const ERROR_AUTH_NOT_CONFIGURED = 'auth_not_configured';
 const ERROR_INVALID_INIT_DATA = 'invalid_init_data';
@@ -139,7 +138,7 @@ export function requireConfigured<T>(value: T | undefined, envVarName: string): 
   return value;
 }
 
-// Data-check-string per Telegram's spec: every field except hash/signature, sorted
+// Data-check-string per Telegram's spec: every field except hash, sorted
 // alphabetically, `key=value` lines joined by `\n`.
 function buildDataCheckString(params: URLSearchParams): string {
   return [...params]

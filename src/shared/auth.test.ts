@@ -13,11 +13,9 @@ describe('validateInitData', () => {
     });
   });
 
-  it('excludes signature from the digest — tampering it alone still validates (§9.3)', () => {
-    const initData = buildInitData({ signature: 'completely-different-value' });
-    expect(validateInitData(initData, TEST_BOT_TOKEN, ALLOWED_USER_IDS)).toEqual({
-      id: TEST_USER_ID,
-    });
+  it('includes signature in the digest — tampering it alone is rejected (§9.3)', () => {
+    const tampered = buildInitData().replace(/signature=[^&]+/, 'signature=tampered');
+    expect(() => validateInitData(tampered, TEST_BOT_TOKEN, ALLOWED_USER_IDS)).toThrow(ApiError);
   });
 
   it('rejects a tampered field', () => {
