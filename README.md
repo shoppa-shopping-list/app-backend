@@ -46,9 +46,8 @@ addedBy }` keyed by `productId`, joined against `products` for `name`/`color` at
 
 ## What's stubbed, and why
 
-- **No public HTTPS exposure yet.** Auth exists now (see above), but the nginx server block
-  is still deliberately not added — that's gated on a domain + cert decision (D19), not on
-  auth. The service is reachable only as `127.0.0.1:3000` on the Pi itself. **Do not add the
-  nginx server block until that's resolved.**
+- **Public at `https://shoppabot.duckdns.org`** (as of 2026-10-06, D19): DuckDNS → home IP,
+  router forwards 80/443 to malina, nginx terminates TLS (Let's Encrypt via certbot) and
+  proxies to `127.0.0.1:3000`. See [`deploy/README.md`](deploy/README.md).
 
 See the root [`CLAUDE.md`](../CLAUDE.md) for gotchas that aren't discoverable from the code.

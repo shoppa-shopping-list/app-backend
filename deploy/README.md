@@ -27,11 +27,23 @@ ssh malina 'sudo mv /tmp/shoppa-backend.service /etc/systemd/system/ && \
 Builds locally, rsyncs `dist/` + `public/` + package manifests, `npm ci --omit=dev` on
 the Pi, restarts the service.
 
-## Not wired up here
+## Public HTTPS (set up 2026-10-06, D19)
 
-No nginx server block, no TLS, no Cloudflare relay — auth exists (`POST /api/session` +
-cookie-guarded routes, see root CLAUDE.md), but there's still no public HTTPS story
-(D19), so the service is reachable only as `127.0.0.1:3000` on the Pi itself.
-`BOT_TOKEN`, `SESSION_SECRET`, and `ALLOWED_USER_IDS` need to be set in `.env` for the
-handshake to work at all here — see `.env.example`.
-See architecture-design.md §7 for what's still open before this is internet-facing.
+`https://shoppabot.duckdns.org` — the Telegram Mini App URL.
+
+- **DNS**: DuckDNS. `~lit/projects/duckdns/update.sh` (cron, every 5 min, logs to
+  `run.log` there) re-points the name at the home IP; its token sits next to it in a
+  `600` file, not in this repo.
+- **Router**: forwards 80 and 443 to malina. 80 stays needed — certbot's HTTP-01
+  renewals use it (the `certbot.timer` that ships with the package renews).
+- **nginx**: `nginx-shoppa.conf` here is a copy of `/etc/nginx/sites-available/shoppa` as
+  deployed, certbot-managed TLS lines included. `/api/events` has buffering off (SSE).
+  To recreate from scratch: install the file without the `# managed by Certbot` lines and
+  the second `server` block, then
+  `sudo certbot --nginx -d shoppabot.duckdns.org --register-unsafely-without-email --redirect`.
+
+## `.env` on malina
+
+`BOT_TOKEN`, `SESSION_SECRET`, and `ALLOWED_USER_IDS` need to be set for the handshake to
+work at all; `TELEGRAM_API_BASE` + `RELAY_SECRET` point at the Cloudflare relay (D26) —
+see `.env.example`.
