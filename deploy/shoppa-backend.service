@@ -9,7 +9,10 @@ User=lit
 WorkingDirectory=/home/lit/projects/shoppa-app-backend
 Environment=NODE_ENV=production
 EnvironmentFile=-/home/lit/projects/shoppa-app-backend/.env
-ExecStart=/usr/local/bin/node dist/index.js
+# Stays the parent dir, not current/: .env and data/ (STATE_PATH=./data/...) live here.
+# Node resolves the current/ symlink to the real release dir, so ../public and node_modules
+# resolve inside that release.
+ExecStart=/usr/local/bin/node current/dist/index.js
 Restart=always
 RestartSec=5
 TimeoutStopSec=30

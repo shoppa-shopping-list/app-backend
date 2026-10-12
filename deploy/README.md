@@ -18,14 +18,54 @@ ssh malina 'sudo mv /tmp/shoppa-backend.service /etc/systemd/system/ && \
   sudo systemctl daemon-reload && sudo systemctl enable --now shoppa-backend'
 ```
 
-## Repeat deploys
+## Repeat deploys — automatic (pull-based)
+
+Push to `main` (or run the CI workflow by hand via `workflow_dispatch` — needed after a
+frontend-only change, since `app-frontend` pushes don't trigger this repo). CI's `release`
+job builds `app-frontend@main` into `public/`, bundles `dist/` + `public/` + prod
+`node_modules` into `shoppa-backend.tar.gz`, attests it (Sigstore build provenance) and
+publishes it as the latest `deploy-*` GitHub Release (keeps 5).
+
+On malina, `pull-deploy.sh` runs from `lit`'s crontab every 3 min. It only acts when
+the latest release tag differs from `current/RELEASE`. It then verifies the attestation
+offline with `gh attestation verify`: signer must be this repo's `ci.yml`, on
+`refs/heads/main`, on a GitHub-hosted runner. If that passes, it unpacks to
+`releases/<tag>`, swaps `current`, restarts the service and health-checks
+`127.0.0.1:3000/`. If the health check fails, it rolls back. If the rollback comes up
+healthy, the new tag is marked in `failed/` and isn't retried (`rm failed/<tag>` to retry
+it). If the rollback is unhealthy too, the problem is the environment (e.g. the Telegram
+relay), so nothing is marked and the next poll tries again. GitHub holds no credentials
+for malina, and nothing new listens inbound.
+
+Layout under `~/projects/shoppa-app-backend/`: `.env` and `data/` stay in the parent (the
+unit's `WorkingDirectory`; `STATE_PATH` is relative to it), code lives in
+`releases/<tag>/`, `current` → the live one. Log: `pull-deploy.log` next to it.
+
+One-time setup (2026-10-12):
+
+```
+# gh CLI, from the official arm64 tarball, same as Node (no apt repo on a shared box)
+curl -fsSL -o gh.tgz https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_arm64.tar.gz
+sudo tar -xzf gh.tgz -C /usr/local/lib && sudo ln -sf /usr/local/lib/gh_2.102.0_linux_arm64/bin/gh /usr/local/bin/gh
+# script + unit (ExecStart now runs current/dist/index.js)
+scp deploy/pull-deploy.sh malina:projects/shoppa-app-backend/
+scp deploy/shoppa-backend.service malina:/tmp/ && ssh malina 'sudo mv /tmp/shoppa-backend.service /etc/systemd/system/ && sudo systemctl daemon-reload'
+# cron
+*/3 * * * * /home/lit/projects/shoppa-app-backend/pull-deploy.sh >> /home/lit/projects/shoppa-app-backend/pull-deploy.log 2>&1
+```
+
+Rollback by hand: `ln -sfn releases/<older-tag> current.tmp && mv -T current.tmp current &&
+sudo systemctl restart shoppa-backend`, then `touch PAUSE` so the poller leaves it alone.
+
+## Repeat deploys — manual fallback
 
 ```
 ./deploy.sh
 ```
 
-Builds locally, rsyncs `dist/` + `public/` + package manifests, `npm ci --omit=dev` on
-the Pi, restarts the service.
+Builds locally, ships a `releases/manual-<timestamp>` into the same layout, swaps
+`current`, restarts, and drops a `PAUSE` file so the poller doesn't revert it. `rm PAUSE`
+on the Pi to hand control back to CI.
 
 ## Public HTTPS (set up 2026-10-06, D19)
 

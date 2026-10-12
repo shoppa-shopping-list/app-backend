@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -102,3 +103,124 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Builds the deploy tarball malina pulls (deploy/pull-deploy.sh). Unprivileged on purpose:
+  # this job runs every dependency's install scripts, so it gets no write or OIDC token.
+  package:
+    name: Package release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+
+    steps:
+      - name: Checkout app-backend
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: app-backend
+          persist-credentials: false
+
+      - name: Checkout app-frontend (main)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: shoppa-shopping-list/app-frontend
+          ref: main
+          path: app-frontend
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: app-backend/.nvmrc
+
+      # stage-backend.mjs copies app-frontend/dist into ../../app-backend/public — the sibling
+      # checkout paths above are what make that relative path resolve.
+      - name: Build frontend into app-backend/public
+        working-directory: app-frontend
+        run: |
+          npm ci
+          npm run build:backend
+
+      - name: Build backend
+        working-directory: app-backend
+        run: |
+          npm ci
+          npm run build
+
+      # Runtime deps are pure JS (no .node addons), so node_modules built on x64 runs on the
+      # Pi's aarch64 as-is — the Pi never runs npm. Re-check if a native dep is ever added.
+      - name: Assemble release tarball
+        run: |
+          set -euo pipefail
+          tag="deploy-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA::7}"
+          tree="$RUNNER_TEMP/tree"
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$tree" "$out"
+          cp -r app-backend/dist app-backend/public app-backend/package.json app-backend/package-lock.json "$tree/"
+          (cd "$tree" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund)
+          if find "$tree" -name '*.node' | grep -q .; then
+            echo "native addon found in node_modules — x64-built tree won't run on the Pi" >&2
+            exit 1
+          fi
+          test -f "$tree/dist/index.js" && test -f "$tree/public/index.html"
+          fe_sha=$(git -C app-frontend rev-parse HEAD)
+          printf '%s\nbackend=%s\nfrontend=%s\n' "$tag" "$GITHUB_SHA" "$fe_sha" > "$tree/RELEASE"
+          cp "$tree/RELEASE" "$out/VERSION"
+          tar -C "$tree" -czf "$out/shoppa-backend.tar.gz" .
+
+      - name: Upload release files
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: ${{ runner.temp }}/out/
+          retention-days: 3
+          if-no-files-found: error
+
+  # Holds the write + OIDC tokens, so it runs no npm and no repo code — only attest + publish.
+  release:
+    name: Attest and publish release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [package]
+    concurrency:
+      group: release
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: out
+
+      - name: Attest build provenance
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/shoppa-backend.tar.gz
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          tag=$(head -n1 out/VERSION)
+          cp "$BUNDLE" out/shoppa-backend.tar.gz.sigstore.json
+          gh release create "$tag" --target "$GITHUB_SHA" --latest \
+            --title "$tag" --notes "Auto-deploy build. malina picks this up via deploy/pull-deploy.sh." \
+            out/shoppa-backend.tar.gz out/shoppa-backend.tar.gz.sigstore.json out/VERSION
+
+      - name: Prune old deploy releases (keep 5)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release list --limit 100 --json tagName,createdAt \
+            -q '[.[] | select(.tagName | startswith("deploy-"))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+            while read -r t; do gh release delete "$t" --cleanup-tag --yes; done
