@@ -20,8 +20,11 @@ ssh malina 'sudo mv /tmp/shoppa-backend.service /etc/systemd/system/ && \
 
 ## Repeat deploys — automatic (pull-based)
 
-Push to `main` (or run the CI workflow by hand via `workflow_dispatch` — needed after a
-frontend-only change, since `app-frontend` pushes don't trigger this repo). CI's `release`
+Push to `main` here, or to `main` in `app-frontend`: its CI's `trigger-deploy` job
+dispatches this repo's CI using the `BACKEND_DEPLOY_TOKEN` secret, a fine-grained PAT
+scoped to this repo with Actions: read & write only. That token expires, and when it
+does, frontend pushes stop deploying (the job warns and skips if the secret is missing).
+`workflow_dispatch` works by hand too. CI's `release`
 job builds `app-frontend@main` into `public/`, bundles `dist/` + `public/` + prod
 `node_modules` into `shoppa-backend.tar.gz`, attests it (Sigstore build provenance) and
 publishes it as the latest `deploy-*` GitHub Release (keeps 5).
