@@ -1,10 +1,13 @@
 import type { State } from './types.js';
 
+import { emptyList } from './lists.js';
+import { CURRENT_VERSION, DEFAULT_LIST_ID, DEFAULT_LIST_NAME } from './types.js';
+
 export function emptyState(): State {
   return {
+    activeListByUser: {},
+    lists: { [DEFAULT_LIST_ID]: emptyList(DEFAULT_LIST_ID, DEFAULT_LIST_NAME) },
     meta: { viewMessageIds: {} },
-    products: {},
-    shoppingList: {},
-    version: 1,
+    version: CURRENT_VERSION,
   };
 }

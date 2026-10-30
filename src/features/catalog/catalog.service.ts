@@ -3,13 +3,14 @@ import type { Product, ProductId } from '../../shared/state/types.js';
 import type { CatalogProduct, CatalogQuery, ProductUpsertInput } from './catalog.schema.js';
 
 import { ApiError } from '../../shared/api-error.js';
-import { getState, mutate } from '../../shared/state/store.js';
+import { activeList, activeListDraft } from '../../shared/state/lists.js';
+import { mutate } from '../../shared/state/store.js';
 import { compareByColorThenName } from '../../shared/state/types.js';
 
 // Idempotent: absent is a 0-write no-op (no mutate(), no fsync, no ping) so a repeated
 // DELETE costs nothing (D7: each mutate() is 10-50ms on SD).
-export function deleteProduct(productId: ProductId): void {
-  if (getState().products[productId] === undefined) {
+export function deleteProduct(productId: ProductId, userId: number): void {
+  if (activeList(userId).products[productId] === undefined) {
     return;
   }
 
@@ -17,11 +18,14 @@ export function deleteProduct(productId: ProductId): void {
     // Re-check inside the mutation (D17 defence #2): delete the shopping-list entry
     // first, then the product, in one clone-and-swap — never an instant, and never a
     // durable state on disk, where a shopping-list item points at a deleted product.
-    if (draft.products[productId] === undefined) {
+    // The cascade stays inside one list because the catalog is nested in it (D33), so
+    // there is no cross-list reference to sweep for.
+    const list = activeListDraft(draft, userId);
+    if (list.products[productId] === undefined) {
       return;
     }
-    delete draft.shoppingList[productId];
-    delete draft.products[productId];
+    delete list.items[productId];
+    delete list.products[productId];
   });
 }
 
@@ -33,7 +37,7 @@ export function listProducts(userId: number, filter?: CatalogQuery): CatalogProd
   const trimmedName = filter?.name?.trim();
   const needle =
     trimmedName !== undefined && trimmedName !== '' ? trimmedName.toLowerCase() : undefined;
-  return Object.values(getState().products)
+  return Object.values(activeList(userId).products)
     .filter((product) => needle === undefined || product.name.toLowerCase().includes(needle))
     .map((product) => toCatalogProduct(product, userId))
     .toSorted(compareByColorThenName);
@@ -46,9 +50,14 @@ function toCatalogProduct(product: DeepReadonly<Product>, userId: number): Catal
 
 // PUT, not POST: the client-supplied UUID makes create and edit the same call, and a retry
 // a true no-op — createdAt is preserved on re-PUT (D11). Always 200, never 201-on-create.
-export function upsertProduct(productId: ProductId, input: ProductUpsertInput): Product {
+export function upsertProduct(
+  productId: ProductId,
+  input: ProductUpsertInput,
+  userId: number,
+): Product {
   return mutate((draft) => {
-    const existing = draft.products[productId];
+    const list = activeListDraft(draft, userId);
+    const existing = list.products[productId];
     const product: Product = {
       color: input.color,
       createdAt: existing?.createdAt ?? new Date().toISOString(),
@@ -57,7 +66,7 @@ export function upsertProduct(productId: ProductId, input: ProductUpsertInput): 
       name: input.name,
       ...(input.defaultUnit !== undefined && { defaultUnit: input.defaultUnit }),
     };
-    draft.products[productId] = product;
+    list.products[productId] = product;
     return { ...product };
   });
 }
@@ -66,21 +75,21 @@ export function upsertProduct(productId: ProductId, input: ProductUpsertInput): 
 // upsertProduct, this never creates a product — favouriting one that doesn't exist is a
 // client error, not an implicit create.
 export function setFavourite(productId: ProductId, userId: number): void {
-  const product = requireProduct(productId);
+  const product = requireProduct(productId, userId);
   if (product.favouritedBy.includes(userId)) {
     return;
   }
 
   mutate((draft) => {
-    const target = draft.products[productId];
+    const target = activeListDraft(draft, userId).products[productId];
     if (target !== undefined) {
       target.favouritedBy = [...target.favouritedBy, userId];
     }
   });
 }
 
-function requireProduct(productId: ProductId): DeepReadonly<Product> {
-  const product = getState().products[productId];
+function requireProduct(productId: ProductId, userId: number): DeepReadonly<Product> {
+  const product = activeList(userId).products[productId];
   if (product === undefined) {
     throw new ApiError(404, 'product_not_found', `no product with id ${productId}`);
   }
@@ -90,13 +99,13 @@ function requireProduct(productId: ProductId): DeepReadonly<Product> {
 // Idempotent like deleteProduct (D7): a missing product or one that isn't favourited by
 // this user is a 0-write no-op.
 export function unsetFavourite(productId: ProductId, userId: number): void {
-  const product = getState().products[productId];
+  const product = activeList(userId).products[productId];
   if (product?.favouritedBy.includes(userId) !== true) {
     return;
   }
 
   mutate((draft) => {
-    const target = draft.products[productId];
+    const target = activeListDraft(draft, userId).products[productId];
     if (target !== undefined) {
       target.favouritedBy = target.favouritedBy.filter((id) => id !== userId);
     }

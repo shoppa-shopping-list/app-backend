@@ -1,10 +1,22 @@
 import { z } from 'zod';
 
-export const CURRENT_VERSION = 1;
+export const CURRENT_VERSION = 2;
 
 // D11: a UUID keeps arbitrary strings out of the Record keyspace.
 export const productIdSchema = z.uuid();
 export type ProductId = z.infer<typeof productIdSchema>;
+
+// Lists get the same treatment as products, for the same reason (D11's keyspace argument):
+// a human slug like 'home' would read nicer in a URL but makes a rename an identity change.
+export const listIdSchema = z.uuid();
+export type ListId = z.infer<typeof listIdSchema>;
+
+// A constant, never randomUUID(): the local file and the Telegram snapshot migrate
+// independently on different boots, and a random id would hand a recovery boot a different
+// list identity than the one the clients are holding (D31). Every unset pointer resolves
+// here, which is why the non-travelling user never has to switch anything (D29).
+export const DEFAULT_LIST_ID = '00000000-0000-4000-8000-000000000001';
+export const DEFAULT_LIST_NAME = 'Home';
 
 // Canonical order doubles as display/group rank (D14) — deliberate, not alphabetical,
 // so 'none' sits predictably last instead of wherever it falls in string sort.
@@ -54,18 +66,32 @@ export const shoppingListItemSchema = z.object({
 });
 export type ShoppingListItem = z.infer<typeof shoppingListItemSchema>;
 
-const metaSchema = z.object({
+export const metaSchema = z.object({
   snapshotMessageId: z.number().optional(), // required to WRITE the snapshot (D4)
   // Keyed by stringified chat_id — §4 never specifies the key shape; recorded as a decision.
   viewMessageIds: z.record(z.string(), z.number()),
 });
 
+// D28/D33: the list is the tenant. Both of v1's top-level domain records — the catalog and
+// the flat shopping list — live inside it, so a product belongs to exactly one list and a
+// cross-list dangling reference is structurally impossible (which is what keeps
+// deleteProduct's D17 cascade local instead of a sweep over every list).
+export const shoppingListSchema = z.object({
+  createdAt: z.iso.datetime(),
+  id: listIdSchema,
+  items: z.record(productIdSchema, shoppingListItemSchema).default({}),
+  name: z.string().trim().min(1).max(60),
+  products: z.record(productIdSchema, productSchema).default({}),
+});
+export type ShoppingList = z.infer<typeof shoppingListSchema>;
+
 export const stateSchema = z.object({
+  // Keyed by stringified Telegram user id, matching meta.viewMessageIds' convention.
+  // Sparse on purpose (D29): a user with no entry is on DEFAULT_LIST_ID, so only the
+  // travelling one ever gets a row here.
+  activeListByUser: z.record(z.string(), listIdSchema).default({}),
+  lists: z.record(listIdSchema, shoppingListSchema),
   meta: metaSchema,
-  products: z.record(productIdSchema, productSchema),
-  // .default({}): lets an old data/state.json (no `shoppingList` key yet) still parse
-  // — no CURRENT_VERSION bump, no migrate() case needed (D27).
-  shoppingList: z.record(productIdSchema, shoppingListItemSchema).default({}),
   version: z.literal(CURRENT_VERSION),
 });
 export type State = z.infer<typeof stateSchema>;

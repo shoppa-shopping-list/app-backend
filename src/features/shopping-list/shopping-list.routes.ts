@@ -18,9 +18,11 @@ import {
 // FastifyPluginAsyncZod's type requires a Promise<void> return.
 // eslint-disable-next-line @typescript-eslint/require-await -- see comment above
 export const shoppingListRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/shopping-list', { schema: { response: { 200: shoppingListResponseSchema } } }, () => ({
-    items: listShoppingListItems(),
-  }));
+  app.get(
+    '/shopping-list',
+    { schema: { response: { 200: shoppingListResponseSchema } } },
+    (request) => ({ items: listShoppingListItems(requireUser(request).id) }),
+  );
 
   app.put(
     '/shopping-list/:productId',
@@ -37,7 +39,7 @@ export const shoppingListRoutes: FastifyPluginAsyncZod = async (app) => {
     '/shopping-list/:productId',
     { schema: { params: shoppingListItemParamsSchema, response: { 204: z.void() } } },
     (request, reply) => {
-      removeShoppingListItem(request.params.productId);
+      removeShoppingListItem(request.params.productId, requireUser(request).id);
       reply.code(204).send();
     },
   );

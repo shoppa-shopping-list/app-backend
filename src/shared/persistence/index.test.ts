@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReadSnapshotResult, SnapshotSource } from './snapshot.js';
 
 import { getState, resetStoreForTests } from '../state/store.js';
+import { CURRENT_VERSION, DEFAULT_LIST_ID } from '../state/types.js';
 import { hydrate, seedEmptyState } from './index.js';
 import { createLocalWriter } from './local.js';
 
@@ -36,8 +37,11 @@ describe('hydrate', () => {
     await hydrate({ log: pino(), snapshot, writer });
 
     const state = getState();
-    expect(state.version).toBe(1);
-    expect(state.shoppingList).toEqual({});
+    expect(state.version).toBe(CURRENT_VERSION);
+    // The seed is one empty default list, not zero lists — every unset pointer resolves
+    // there (D29), so an empty `lists` would make the very first read throw.
+    expect(Object.keys(state.lists)).toEqual([DEFAULT_LIST_ID]);
+    expect(state.lists[DEFAULT_LIST_ID]?.items).toEqual({});
     expect(snapshot.writeSnapshot).toHaveBeenCalledWith(expect.any(String), undefined);
   });
 
@@ -57,7 +61,7 @@ describe('hydrate', () => {
     }
     expect(readFileSync(path.join(dir, corruptFile), 'utf8')).toBe(originalBytes);
 
-    expect(getState().version).toBe(1);
+    expect(getState().version).toBe(CURRENT_VERSION);
   });
 
   it('rethrows an unexpected IO error instead of seeding, and never touches Telegram', async () => {

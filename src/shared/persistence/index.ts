@@ -4,8 +4,10 @@ import type { State } from '../state/types.js';
 import type { LocalWriter } from './local.js';
 import type { SnapshotSource } from './snapshot.js';
 
+import { emptyList } from '../state/lists.js';
 import { migrate } from '../state/migrate.js';
 import { getState, installState, mutate } from '../state/store.js';
+import { CURRENT_VERSION, DEFAULT_LIST_ID, DEFAULT_LIST_NAME } from '../state/types.js';
 
 export interface HydrateOptions {
   log: Logger;
@@ -221,11 +223,14 @@ export function resetTelegramFlushForTests(): void {
   dirty = false;
 }
 
+// A fresh install starts with the one default list every unset pointer resolves to (D29),
+// not with zero lists — an empty `lists` would make the first read throw instead of
+// returning an empty catalog.
 export function seedEmptyState(): State {
   return {
+    activeListByUser: {},
+    lists: { [DEFAULT_LIST_ID]: emptyList(DEFAULT_LIST_ID, DEFAULT_LIST_NAME) },
     meta: { viewMessageIds: {} },
-    products: {},
-    shoppingList: {},
-    version: 1,
+    version: CURRENT_VERSION,
   };
 }

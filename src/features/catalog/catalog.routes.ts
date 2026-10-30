@@ -37,14 +37,14 @@ export const catalogRoutes: FastifyPluginAsyncZod = async (app) => {
         response: { 200: productResponseSchema },
       },
     },
-    (request) => upsertProduct(request.params.productId, request.body),
+    (request) => upsertProduct(request.params.productId, request.body, requireUser(request).id),
   );
 
   app.delete(
     '/catalog/:productId',
     { schema: { params: productParamsSchema, response: { 204: z.void() } } },
     (request, reply) => {
-      deleteProduct(request.params.productId);
+      deleteProduct(request.params.productId, requireUser(request).id);
       reply.code(204).send();
     },
   );

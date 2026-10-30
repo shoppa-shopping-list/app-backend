@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Product, State } from '../../shared/state/types.js';
 
+import { activeListDraft } from '../../shared/state/lists.js';
 import {
   configureStore,
   installState,
@@ -15,6 +16,8 @@ import {
   listShoppingListItems,
   removeShoppingListItem,
 } from './shopping-list.service.js';
+
+const USER_ID = 1;
 
 let writeLocalSync: ReturnType<typeof vi.fn<(next: State) => void>>;
 
@@ -37,7 +40,7 @@ function seedProduct(overrides?: Partial<Product>): Product {
     ...overrides,
   };
   mutate((draft) => {
-    draft.products[product.id] = product;
+    activeListDraft(draft, USER_ID).products[product.id] = product;
   });
   return product;
 }
@@ -48,7 +51,7 @@ describe('addShoppingListItem / listShoppingListItems', () => {
 
     addShoppingListItem(product.id, 1);
 
-    expect(listShoppingListItems()).toEqual([
+    expect(listShoppingListItems(USER_ID)).toEqual([
       {
         addedAt: expect.any(String) as string,
         addedBy: 1,
@@ -65,7 +68,7 @@ describe('addShoppingListItem / listShoppingListItems', () => {
     addShoppingListItem(product.id, 1);
     addShoppingListItem(product.id, 2);
 
-    const items = listShoppingListItems();
+    const items = listShoppingListItems(USER_ID);
     expect(items).toHaveLength(1);
     expect(items[0]?.addedBy).toBe(2);
   });
@@ -81,7 +84,7 @@ describe('addShoppingListItem / listShoppingListItems', () => {
     addShoppingListItem(bread.id, 1);
     addShoppingListItem(milk.id, 1);
 
-    expect(listShoppingListItems().map((item) => item.name)).toEqual(['Milk', 'Bread']);
+    expect(listShoppingListItems(USER_ID).map((item) => item.name)).toEqual(['Milk', 'Bread']);
   });
 });
 
@@ -91,14 +94,14 @@ describe('removeShoppingListItem', () => {
     addShoppingListItem(product.id, 1);
     writeLocalSync.mockClear();
 
-    removeShoppingListItem(product.id);
+    removeShoppingListItem(product.id, USER_ID);
 
-    expect(listShoppingListItems()).toEqual([]);
+    expect(listShoppingListItems(USER_ID)).toEqual([]);
     expect(writeLocalSync).toHaveBeenCalledTimes(1);
   });
 
   it('removing an item not on the list is a 0-write no-op', () => {
-    removeShoppingListItem(randomUUID());
+    removeShoppingListItem(randomUUID(), USER_ID);
 
     expect(writeLocalSync).not.toHaveBeenCalled();
   });

@@ -244,10 +244,10 @@ export default defineConfig(
     },
   },
 
-  // src/index.ts (§3.2, D6) and src/openapi.ts (--check in CI) are CLI entry points where
-  // process.exit() is the specified behaviour.
+  // src/index.ts (§3.2, D6), src/openapi.ts (--check in CI) and src/use-list.ts (the manual
+  // list switch, D32) are CLI entry points where process.exit() is the specified behaviour.
   {
-    files: ['src/index.ts', 'src/openapi.ts'],
+    files: ['src/index.ts', 'src/openapi.ts', 'src/use-list.ts'],
     rules: {
       'n/no-process-exit': 'off',
       'unicorn/no-process-exit': 'off',
